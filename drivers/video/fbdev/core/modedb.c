@@ -289,6 +289,7 @@ static const struct fb_videomode modedb[] = {
 };
 
 #ifdef CONFIG_FB_MODE_HELPERS
+<<<<<<< HEAD
 const struct fb_videomode cea_modes[220] = {
 	/* #1: 640x480p@59.94/60Hz */
 	[1] = {
@@ -351,6 +352,8 @@ const struct fb_videomode cea_modes[220] = {
 	},
 };
 
+=======
+>>>>>>> edb904416591... fbdev: Ditch fb_edid_add_monspecs
 const struct fb_videomode vesa_modes[] = {
 	/* 0 640x350-85 VESA */
 	{ NULL, 85, 640, 350, 31746,  96, 32, 60, 32, 64, 3,

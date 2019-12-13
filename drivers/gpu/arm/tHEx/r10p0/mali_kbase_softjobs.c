@@ -43,8 +43,6 @@
 #include <linux/kernel.h>
 #include <linux/cache.h>
 
-#include <linux/list.h>
-
 /**
  * @file mali_kbase_softjobs.c
  *
@@ -65,17 +63,9 @@ static void kbasep_add_waiting_soft_job(struct kbase_jd_atom *katom)
 void kbasep_remove_waiting_soft_job(struct kbase_jd_atom *katom)
 {
 	struct kbase_context *kctx = katom->kctx;
-	struct device *dev = kctx->kbdev->dev;
 	unsigned long lflags;
 
 	spin_lock_irqsave(&kctx->waiting_soft_jobs_lock, lflags);
-	/* MALI_SEC_INTEGRATION */
-	if(katom->queue.next == LIST_POISON1)
-	{
-		spin_unlock_irqrestore(&kctx->waiting_soft_jobs_lock, lflags);
-		dev_warn(dev, "queue was already deleted from list\n");
-		return;
-	}
 	list_del(&katom->queue);
 	spin_unlock_irqrestore(&kctx->waiting_soft_jobs_lock, lflags);
 }

@@ -44,7 +44,7 @@
 #include <backend/gpu/mali_kbase_pm_internal.h>
 
  /* MALI_SEC_INTEGRATION */
-#if defined (CONFIG_SOC_EXYNOS9810)
+#if defined (CONFIG_SOC_EXYNOS9610)
 #define KBASE_TRANS_READY_LOOPS 10000
 #include <linux/soc/samsung/exynos-soc.h>
 #endif
@@ -1071,7 +1071,7 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 	spin_unlock_irqrestore(&kbdev->pm.backend.gpu_powered_lock, flags);
 
 	/* MALI_SEC_INTEGRATION */
-#if defined (CONFIG_SOC_EXYNOS9810)
+#if defined (CONFIG_SOC_EXYNOS9610)
 	if (exynos_soc_info.main_rev == 0)
 		reset_required = true;
 #endif

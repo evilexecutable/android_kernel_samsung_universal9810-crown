@@ -40,7 +40,6 @@
 #include "mali_kbase_dma_fence.h"
 
 /* MALI_SEC_INTEGRATION */
-#include <linux/exynos_ion.h>
 #include <linux/smc.h>
 #include "platform/exynos/gpu_integration_defs.h"
 
@@ -272,11 +271,6 @@ static void kbase_jd_post_external_resources(struct kbase_jd_atom *katom)
 			reg = kbase_region_tracker_find_region_base_address(
 					katom->kctx,
 					katom->extres[res_no].gpu_address);
-
-			/* MALI_SEC_INTEGRATION */
-			/* To be flushed by G2D driver if the external resource has cacheable property */
-			if (reg && (reg->gpu_alloc == alloc) && (reg->flags & KBASE_REG_CPU_CACHED))
-				dma_buf_set_privflag(reg->gpu_alloc->imported.umm.dma_buf);
 
 			kbase_unmap_external_resource(katom->kctx, reg, alloc);
 		}
@@ -1450,10 +1444,6 @@ while (false)
 
 KBASE_EXPORT_TEST_API(kbase_jd_submit);
 
-#if defined(CONFIG_SEC_ABC)
-#include <linux/sti/abc_common.h>
-#endif
-
 void kbase_jd_done_worker(struct work_struct *data)
 {
 	struct kbase_jd_atom *katom = container_of(data, struct kbase_jd_atom, work);
@@ -1514,15 +1504,11 @@ void kbase_jd_done_worker(struct work_struct *data)
 		return;
 	}
 
-	if (katom->event_code != BASE_JD_EVENT_DONE) {
+	if (katom->event_code != BASE_JD_EVENT_DONE)
 		dev_err(kbdev->dev,
 			"t6xx: GPU fault 0x%02lx from job slot %d\n",
 					(unsigned long)katom->event_code,
 								katom->slot_nr);
-#if defined(CONFIG_SEC_ABC)
-		sec_abc_send_event("MODULE=gpu@ERROR=gpu_fault");
-#endif
-	}
 
 	if (kbase_hw_has_issue(kbdev, BASE_HW_ISSUE_8316))
 		kbase_as_poking_timer_release_atom(kbdev, kctx, katom);

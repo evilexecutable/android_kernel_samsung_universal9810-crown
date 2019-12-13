@@ -33,6 +33,9 @@
 #include <linux/module.h>
 #include <linux/of_platform.h>
 
+/* MALI_SEC_INTEGRATION */
+#include <linux/sched/clock.h>
+
 #include <mali_kbase.h>
 #include <mali_kbase_defs.h>
 #include <mali_kbase_hwaccess_instr.h>

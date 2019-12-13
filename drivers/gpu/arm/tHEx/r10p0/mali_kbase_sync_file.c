@@ -73,11 +73,11 @@ int kbase_sync_fence_out_create(struct kbase_jd_atom *katom, int stream_fd)
 	if (!fence)
 		return -ENOMEM;
 
-		/* Take an extra reference to the fence on behalf of the sync_file.
-		 * This is only needed on older kernels where sync_file_create()
-		 * does not take its own reference. This was changed in v4.9.68,
-		 * where sync_file_create() now takes its own reference. */
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 67))
+	/* Take an extra reference to the fence on behalf of the sync_file.
+	 * This is only needed on older kernels where sync_file_create()
+	 * does not take its own reference. This was changed in v4.9.68,
+	 * where sync_file_create() now takes its own reference. */
 	dma_fence_get(fence);
 #endif
 

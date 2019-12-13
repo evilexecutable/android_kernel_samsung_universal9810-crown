@@ -49,7 +49,7 @@ static struct exynos_pm_domain *gpu_get_pm_domain(void)
 
 		pdev = of_find_device_by_node(np);
 		pd_temp = (struct exynos_pm_domain *)platform_get_drvdata(pdev);
-		if (!strcmp("pd-embedded_g3d", (const char *)(pd_temp->genpd.name))) {
+		if (!strcmp("pd-g3d", (const char *)(pd_temp->genpd.name))) {
 			pd = pd_temp;
 			break;
 		}

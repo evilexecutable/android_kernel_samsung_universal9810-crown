@@ -45,6 +45,7 @@ int kbase_platform_dvfs_event(struct kbase_device *kbdev, u32 utilisation)
 		kobject_uevent_env(&kbdev->dev->kobj, KOBJ_CHANGE, env);
 	}
 
+
 	if (!platform->perf_gathering_status) {
 		mutex_lock(&platform->gpu_dvfs_handler_lock);
 		if (gpu_control_is_power_on(kbdev)) {

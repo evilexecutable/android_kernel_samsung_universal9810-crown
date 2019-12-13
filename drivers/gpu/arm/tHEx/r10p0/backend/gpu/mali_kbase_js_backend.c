@@ -314,9 +314,10 @@ int kbase_backend_timer_init(struct kbase_device *kbdev)
 							HRTIMER_MODE_REL);
 	backend->scheduling_timer.function = timer_callback;
 
+	/* temporarily comment out by chandolp */
 	/* MALI_SEC_INTEGRATION */
 #ifdef CONFIG_SCHED_EHMP
-	backend->scheduling_timer.bounded_to_boot_cluster = true;
+	/* backend->scheduling_timer.bounded_to_boot_cluster = true; */
 #endif
 
 	backend->timer_running = false;

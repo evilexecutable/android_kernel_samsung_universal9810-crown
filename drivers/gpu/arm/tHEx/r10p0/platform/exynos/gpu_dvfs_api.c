@@ -16,11 +16,15 @@
  */
 
 #include <mali_kbase.h>
-#ifdef CONFIG_EXYNOS9810_BTS
+#ifdef CONFIG_EXYNOS9610_BTS
 #include <soc/samsung/bts.h>
 #endif
 #ifdef CONFIG_EXYNOS_ASV
 #include <soc/samsung/asv-exynos.h>
+#endif
+
+#ifdef CONFIG_MALI_RT_PM
+#include <soc/samsung/exynos-pd.h>
 #endif
 
 #include "mali_kbase_platform.h"
@@ -133,12 +137,19 @@ int gpu_set_target_clk_vol(int clk, bool pending_is_allowed)
 		return -1;
 	}
 
-	prev_clk = gpu_get_cur_clock(platform);
+#ifdef CONFIG_MALI_RT_PM
+	if (platform->exynos_pm_domain) {
+		mutex_lock(&platform->exynos_pm_domain->access_lock);
+		if (!platform->dvs_is_enabled && gpu_is_power_on())
+			prev_clk = gpu_get_cur_clock(platform);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+	}
+#endif
 
 	gpu_control_set_dvfs(kbdev, target_clk);
 	ret = gpu_update_cur_level(platform);
 
-#ifdef CONFIG_EXYNOS9810_BTS
+#ifdef CONFIG_EXYNOS9610_BTS
 	if (target_clk >= platform->mo_min_clock)
 		bts_update_scen(BS_G3D_PERFORMANCE, 1);	/* GPU IDQ : 0 (max token) */
 	else
@@ -148,7 +159,7 @@ int gpu_set_target_clk_vol(int clk, bool pending_is_allowed)
 	mutex_unlock(&platform->gpu_clock_lock);
 
 	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "clk[%d -> %d], vol[%d (margin : %d)]\n",
-		prev_clk, gpu_get_cur_clock(platform), gpu_get_cur_voltage(platform), platform->voltage_margin);
+		prev_clk, target_clk, gpu_get_cur_voltage(platform), platform->voltage_margin);
 
 	return ret;
 }
@@ -170,13 +181,20 @@ int gpu_set_target_clk_vol_pending(int clk)
 		return -1;
 	}
 
-	prev_clk = gpu_get_cur_clock(platform);
+#ifdef CONFIG_MALI_RT_PM
+	if (platform->exynos_pm_domain) {
+		mutex_lock(&platform->exynos_pm_domain->access_lock);
+		if (!platform->dvs_is_enabled && gpu_is_power_on())
+			prev_clk = gpu_get_cur_clock(platform);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+	}
+#endif
 
 	gpu_control_set_dvfs(kbdev, target_clk);
 	ret = gpu_update_cur_level(platform);
 
 	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "pending clk[%d -> %d], vol[%d (margin : %d)]\n",
-		prev_clk, gpu_get_cur_clock(platform), gpu_get_cur_voltage(platform), platform->voltage_margin);
+		prev_clk, target_clk, gpu_get_cur_voltage(platform), platform->voltage_margin);
 
 	return ret;
 }
@@ -569,7 +587,14 @@ int gpu_dvfs_get_cur_clock(void)
 	int clock = 0;
 
 	DVFS_ASSERT(platform);
-
+#ifdef CONFIG_MALI_RT_PM
+	if (platform->exynos_pm_domain) {
+		mutex_lock(&platform->exynos_pm_domain->access_lock);
+		if (!platform->dvs_is_enabled && gpu_is_power_on())
+			clock = gpu_get_cur_clock(platform);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+	}
+#else
 	if (gpu_control_is_power_on(pkbdev) == 1) {
 		mutex_lock(&platform->gpu_clock_lock);
 
@@ -582,7 +607,7 @@ int gpu_dvfs_get_cur_clock(void)
 		clock = gpu_get_cur_clock(platform);
 		mutex_unlock(&platform->gpu_clock_lock);
 	}
-
+#endif
 
 	return clock;
 }

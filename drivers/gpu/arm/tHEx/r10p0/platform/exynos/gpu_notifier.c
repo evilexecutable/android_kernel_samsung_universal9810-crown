@@ -57,7 +57,7 @@ static int gpu_tmu_notifier(struct notifier_block *notifier,
 {
 	int frequency;
 	struct exynos_context *platform = (struct exynos_context *)pkbdev->platform_context;
-#ifdef CONFIG_EXYNOS_SNAPSHOT_THERMAL
+#ifdef CONFIG_DEBUG_SNAPSHOT_THERMAL
 	char *cooling_device_name = "GPU";
 #endif
 
@@ -76,8 +76,8 @@ static int gpu_tmu_notifier(struct notifier_block *notifier,
 		gpu_tmu_normal_work(pkbdev);
 	} else if (event == GPU_THROTTLING || event == GPU_TRIPPING) {
 		gpu_dvfs_clock_lock(GPU_DVFS_MAX_LOCK, TMU_LOCK, frequency);
-#ifdef CONFIG_EXYNOS_SNAPSHOT_THERMAL
-		exynos_ss_thermal(NULL, 0, cooling_device_name, frequency);
+#ifdef CONFIG_DEBUG_SNAPSHOT_THERMAL
+		dbg_snapshot_thermal(NULL, 0, cooling_device_name, frequency);
 #endif
 	}
 
@@ -248,7 +248,11 @@ static int pm_callback_runtime_on(struct kbase_device *kbdev)
 	gpu_dvfs_start_env_data_gathering(kbdev);
 	platform->power_status = true;
 #ifdef CONFIG_MALI_DVFS
+#ifdef CONFIG_MALI_SEC_CL_BOOST
 	if (platform->dvfs_status && platform->wakeup_lock && !kbdev->pm.backend.metrics.is_full_compute_util)
+#else
+	if (platform->dvfs_status && platform->wakeup_lock)
+#endif /* CONFIG_MALI_SEC_CL_BOOST */
 		gpu_set_target_clk_vol(platform->gpu_dvfs_start_clock, false);
 	else
 		gpu_set_target_clk_vol(platform->cur_clock, false);
@@ -324,6 +328,8 @@ static struct notifier_block gpu_noc_nb = {
 };
 #endif
 
+/* temporarily comment out by chandolp */
+#if 0
 static int gpu_oomdebug_notifier(struct notifier_block *self,
 						       unsigned long dummy, void *parm)
 {
@@ -355,10 +361,10 @@ static int gpu_oomdebug_notifier(struct notifier_block *self,
 	return NOTIFY_OK;
 }
 
-
 static struct notifier_block gpu_oomdebug_nb = {
 	.notifier_call = gpu_oomdebug_notifier,
 };
+#endif
 
 int gpu_notifier_init(struct kbase_device *kbdev)
 {
@@ -382,8 +388,10 @@ int gpu_notifier_init(struct kbase_device *kbdev)
 
 	platform->power_status = true;
 
-	if (register_oomdebug_notifier(&gpu_oomdebug_nb) < 0)
-		pr_err("%s: failed to register oom debug notifier\n", __func__);
+	/* temporarily comment out by chandolp */
+	/* Cannot find following API in 4.14 kernel */
+	/* if (register_oomdebug_notifier(&gpu_oomdebug_nb) < 0)
+		pr_err("%s: failed to register oom debug notifier\n", __func__); */
 
 	return 0;
 }

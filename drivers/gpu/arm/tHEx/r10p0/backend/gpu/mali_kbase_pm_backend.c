@@ -285,7 +285,9 @@ static void kbase_pm_gpu_poweroff_wait_wq(struct work_struct *data)
 	wake_up(&kbdev->pm.backend.poweroff_wait);
 }
 
-void kbase_pm_do_poweroff(struct kbase_device *kbdev, bool is_suspend)
+/* MALI_SEC_INTEGRATION */
+/* Remove using 'power off wait wq' @ bifrost ddk */
+int kbase_pm_do_poweroff(struct kbase_device *kbdev, bool is_suspend)
 {
 	unsigned long flags;
 
@@ -305,16 +307,23 @@ void kbase_pm_do_poweroff(struct kbase_device *kbdev, bool is_suspend)
 		kbdev->tiler_available_bitmap = 0;
 		kbdev->l2_available_bitmap = 0;
 
+#ifdef MALI_SEC_INTEGRATION
 		kbdev->pm.backend.poweroff_wait_in_progress = true;
 		kbdev->pm.backend.poweroff_is_suspend = is_suspend;
+#endif
 
 		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+#ifdef MALI_SEC_INTEGRATION
 		/*Kick off wq here. Callers will have to wait*/
 		queue_work(kbdev->pm.backend.gpu_poweroff_wait_wq,
 				&kbdev->pm.backend.gpu_poweroff_wait_work);
+#endif
 	} else {
 		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 	}
+
+	/* MALI_SEC_INTEGRATION */
+	return kbase_pm_clock_off(kbdev, is_suspend);
 }
 
 static bool is_poweroff_in_progress(struct kbase_device *kbdev)
@@ -408,7 +417,17 @@ void kbase_hwaccess_pm_halt(struct kbase_device *kbdev)
 
 	mutex_lock(&kbdev->pm.lock);
 	kbase_pm_cancel_deferred_poweroff(kbdev);
-	kbase_pm_do_poweroff(kbdev, false);
+	if (!kbase_pm_do_poweroff(kbdev, false)) {
+		/* MALI_SEC_INTEGRATION */
+		/* Remove using 'power off wait wq' @ bifrost ddk */
+		/* Page/bus faults are pending, must drop pm.lock to process.
+		 * Interrupts are disabled so no more faults should be
+		 * generated at this point */
+		mutex_unlock(&kbdev->pm.lock);
+		kbase_flush_mmu_wqs(kbdev);
+		mutex_lock(&kbdev->pm.lock);
+		WARN_ON(!kbase_pm_do_poweroff(kbdev, false));
+	}
 	mutex_unlock(&kbdev->pm.lock);
 }
 
@@ -487,14 +506,28 @@ void kbase_hwaccess_pm_suspend(struct kbase_device *kbdev)
 	mutex_lock(&kbdev->pm.lock);
 
 	kbase_pm_cancel_deferred_poweroff(kbdev);
-	kbase_pm_do_poweroff(kbdev, true);
+	if (!kbase_pm_do_poweroff(kbdev, true)) {
+		/* Page/bus faults are pending, must drop pm.lock to process.
+		 * Interrupts are disabled so no more faults should be
+		 * generated at this point */
+		mutex_unlock(&kbdev->pm.lock);
+		/* MALI_SEC_INTEGRATION */
+		mutex_unlock(&js_devdata->runpool_mutex);
+		kbase_flush_mmu_wqs(kbdev);
+		/* MALI_SEC_INTEGRATION */
+		mutex_lock(&js_devdata->runpool_mutex);
+		mutex_lock(&kbdev->pm.lock);
+		WARN_ON(!kbase_pm_do_poweroff(kbdev, false));
+	}
 
 	kbase_backend_timer_suspend(kbdev);
 
 	mutex_unlock(&kbdev->pm.lock);
 	mutex_unlock(&js_devdata->runpool_mutex);
 
-	kbase_pm_wait_for_poweroff_complete(kbdev);
+	/* MALI_SEC_INTEGRATION */
+	/* Remove using 'power off wait wq' @ bifrost ddk */
+	/* kbase_pm_wait_for_poweroff_complete(kbdev); */
 }
 
 void kbase_hwaccess_pm_resume(struct kbase_device *kbdev)

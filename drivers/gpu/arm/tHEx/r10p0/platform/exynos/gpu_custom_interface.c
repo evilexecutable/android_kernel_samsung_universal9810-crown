@@ -32,6 +32,10 @@
 #endif /* CONFIG_CPU_THERMAL_IPA */
 #include "gpu_custom_interface.h"
 
+#ifdef CONFIG_MALI_RT_PM
+#include <soc/samsung/exynos-pd.h>
+#endif
+
 extern struct kbase_device *pkbdev;
 
 int gpu_pmqos_dvfs_min_lock(int level)
@@ -63,12 +67,21 @@ static ssize_t show_clock(struct device *dev, struct device_attribute *attr, cha
 	if (!platform)
 		return -ENODEV;
 
+#ifdef CONFIG_MALI_RT_PM
+	if (platform->exynos_pm_domain) {
+		mutex_lock(&platform->exynos_pm_domain->access_lock);
+		if(!platform->dvs_is_enabled && gpu_is_power_on())
+			clock = gpu_get_cur_clock(platform);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+	}
+#else
 	if (gpu_control_is_power_on(pkbdev) == 1) {
 		mutex_lock(&platform->gpu_clock_lock);
 		if (!platform->dvs_is_enabled)
 			clock = gpu_get_cur_clock(platform);
 		mutex_unlock(&platform->gpu_clock_lock);
 	}
+#endif
 
 	ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", clock);
 
@@ -1554,12 +1567,21 @@ static ssize_t show_kernel_sysfs_clock(struct kobject *kobj, struct kobj_attribu
 	if (!platform)
 		return -ENODEV;
 
+#ifdef CONFIG_MALI_RT_PM
+	if (platform->exynos_pm_domain) {
+		mutex_lock(&platform->exynos_pm_domain->access_lock);
+		if (!platform->dvs_is_enabled && gpu_is_power_on())
+			clock = gpu_get_cur_clock(platform);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+	}
+#else
 	if (gpu_control_is_power_on(pkbdev) == 1) {
 		mutex_lock(&platform->gpu_clock_lock);
 		if (!platform->dvs_is_enabled)
 			clock = gpu_get_cur_clock(platform);
 		mutex_unlock(&platform->gpu_clock_lock);
 	}
+#endif
 
 	ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", clock);
 
@@ -1759,10 +1781,10 @@ static struct kobj_attribute gpu_temp_attribute =
 	__ATTR(gpu_tmu, S_IRUGO, show_kernel_sysfs_gpu_temp, NULL);
 #endif
 
+#ifdef CONFIG_MALI_DVFS
 static struct kobj_attribute gpu_info_attribute =
 	__ATTR(gpu_info, S_IRUGO, show_kernel_sysfs_gpu_info, NULL);
 
-#ifdef CONFIG_MALI_DVFS
 static struct kobj_attribute gpu_max_lock_attribute =
 	__ATTR(gpu_max_clock, S_IRUGO|S_IWUSR, show_kernel_sysfs_max_lock_dvfs, set_kernel_sysfs_max_lock_dvfs);
 
@@ -1795,8 +1817,8 @@ static struct attribute *attrs[] = {
 #if defined(CONFIG_EXYNOS_THERMAL) && defined(CONFIG_GPU_THERMAL)
 	&gpu_temp_attribute.attr,
 #endif
-	&gpu_info_attribute.attr,
 #ifdef CONFIG_MALI_DVFS
+	&gpu_info_attribute.attr,
 	&gpu_max_lock_attribute.attr,
 	&gpu_min_lock_attribute.attr,
 #endif /* #ifdef CONFIG_MALI_DVFS */

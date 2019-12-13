@@ -1187,8 +1187,10 @@ static void kbase_mmu_flush_invalidate(struct kbase_context *kctx,
 		return;
 
 	/* MALI_SEC_INTEGRATION */
+#ifdef CONFIG_MALI_RT_PM
 	if (!gpu_is_power_on())
 		return;
+#endif
 
 	kbdev = kctx->kbdev;
 	mutex_lock(&kbdev->js_data.queue_mutex);

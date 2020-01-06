@@ -1444,6 +1444,7 @@ CONFIG_DEV_RIL_BRIDGE=y
 # NOTIFIER configs
 #
 CONFIG_VBUS_NOTIFIER=y
+# CONFIG_KPERFMON is not set
 
 #
 # MUIC configs

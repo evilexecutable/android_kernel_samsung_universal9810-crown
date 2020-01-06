@@ -5,7 +5,7 @@
 # Rewritten to use lists instead of if-statements.
 #
 
-ifeq (existexist, $(shell [ -e $(srctree)/include/linux/olog.pb.h ] && echo exist)$(shell [ -e $(srctree)/../../system/core/liblog/include/log/perflog.h ] && echo exist))
+ifeq (exist, $(shell [ -e $(srctree)/../../system/core/liblog/include/log/perflog.h ] && echo exist))
 	obj-y				+= kperfmon.o
 else
 	obj-y				+= ologk.o

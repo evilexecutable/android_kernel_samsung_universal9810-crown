@@ -77,6 +77,11 @@ include/config
 include/generated
 arch/*/include/generated
 
+#
+# tmp script folder
+#
+scripts/rkp_cfp/tmp
+
 # stgit generated dirs
 patches-*
 

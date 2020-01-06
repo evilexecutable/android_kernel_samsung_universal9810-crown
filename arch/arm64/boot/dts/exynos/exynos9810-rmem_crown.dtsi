@@ -9,7 +9,7 @@
  * published by the Free Software Foundation.
  */
 
-#include <dt-bindings/soc/samsung/crown_conf.h>
+#include <dt-bindings/soc/samsung/exynos9810.h>
 
 &reserved_memory {
 	camera {

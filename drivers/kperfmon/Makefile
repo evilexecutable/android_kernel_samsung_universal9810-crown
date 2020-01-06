@@ -1,13 +1,13 @@
 #
 # Makefile for the Linux kernel device drivers.
 #
-# 15 Sep 2000, Christoph Hellwig <hch@infradead.org>
+# Sep 2018, Binse Park <h22yap@gmail.com>
 # Rewritten to use lists instead of if-statements.
 #
 
+#$(info kperfmon_CURDIR="$(shell ls $(srctree/../../*)")
 ifeq (exist, $(shell [ -e $(srctree)/../../system/core/liblog/include/log/perflog.h ] && echo exist))
 	obj-y				+= kperfmon.o
 else
 	obj-y				+= ologk.o
-$(info kperfmon_DUMMY="$(shell cp -f $(srctree)/drivers/kperfmon/ologk.h $(srctree)/include/linux/)")
 endif

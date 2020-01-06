@@ -361,12 +361,8 @@ static ssize_t ext4_attr_show(struct kobject *kobj,
 	case attr_pointer_ui:
 		if (!ptr)
 			return 0;
-		if (a->attr_ptr == ptr_ext4_super_block_offset)
-			return snprintf(buf, PAGE_SIZE, "%u\n",
-					le32_to_cpup(ptr));
-		else
-			return snprintf(buf, PAGE_SIZE, "%u\n",
-					*((unsigned int *) ptr));
+		return snprintf(buf, PAGE_SIZE, "%u\n",
+				*((unsigned int *) ptr));
 	case attr_pointer_atomic:
 		if (!ptr)
 			return 0;
@@ -401,10 +397,7 @@ static ssize_t ext4_attr_store(struct kobject *kobj,
 		ret = kstrtoul(skip_spaces(buf), 0, &t);
 		if (ret)
 			return ret;
-		if (a->attr_ptr == ptr_ext4_super_block_offset)
-			*((__le32 *) ptr) = cpu_to_le32(t);
-		else
-			*((unsigned int *) ptr) = t;
+		*((unsigned int *) ptr) = t;
 		return len;
 	case attr_inode_readahead:
 		return inode_readahead_blks_store(a, sbi, buf, len);
@@ -522,7 +515,8 @@ void ext4_unregister_sysfs(struct super_block *sb)
 		remove_proc_entry(sb->s_id, ext4_proc_root);
 	}
 
-	if (le32_to_cpu(sbi->s_es->s_sec_magic) == EXT4_SEC_DATA_MAGIC)
+	if (le32_to_cpu(sbi->s_es->s_sec_magic) == EXT4_SEC_DATA_MAGIC ||
+			strncmp(sbi->s_es->s_volume_name, "data", 4) == 0)
 		sysfs_delete_link(&ext4_kset.kobj, &sbi->s_kobj, "userdata");
 
 	kobject_del(&sbi->s_kobj);

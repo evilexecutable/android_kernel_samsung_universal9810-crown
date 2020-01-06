@@ -346,6 +346,9 @@ out:
 		if (!fatal)
 			fatal = err;
 	} else {
+		/* for debugging, sangwoo2.lee */
+		print_bh(sb, bitmap_bh, 0, EXT4_BLOCK_SIZE(sb));
+		/* for debugging */
 		ext4_error(sb, "bit already cleared for inode %lu", ino);
 		if (gdp && !EXT4_MB_GRP_IBITMAP_CORRUPT(grp)) {
 			int count;
@@ -1155,7 +1158,7 @@ fail_drop:
 	unlock_new_inode(inode);
 out:
 	if (err == -ENOSPC) {
-		printk_ratelimited(KERN_INFO "Return ENOSPC : No free inode (%d/%u)\n",
+		printk_ratelimited(KERN_INFO "Return ENOSPC: ifree=%d, inodes=%u\n",
 			(int) percpu_counter_read_positive(&sbi->s_freeinodes_counter),
 			le32_to_cpu(sbi->s_es->s_inodes_count));
 	}
@@ -1359,7 +1362,7 @@ int ext4_init_inode_table(struct super_block *sb, ext4_group_t group,
 			    sbi->s_inodes_per_block);
 
 	if ((used_blks < 0) || (used_blks > sbi->s_itb_per_group) ||
-	    ((group == 0) && ((EXT4_INODES_PER_GROUP(sb) -
+		((group == 0) && ((EXT4_INODES_PER_GROUP(sb) -
 			       ext4_itable_unused_count(sb, gdp)) <
 			      EXT4_FIRST_INO(sb)))) {
 		ext4_error(sb, "Something is wrong with group %u: "

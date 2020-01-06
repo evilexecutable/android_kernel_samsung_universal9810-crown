@@ -46,8 +46,6 @@ struct sync_file {
 	struct fence_cb cb;
 };
 
-#define POLL_ENABLED 0
-
 struct sync_file *sync_file_create(struct fence *fence);
 struct fence *sync_file_get_fence(int fd);
 int sync_file_wait(struct sync_file *sync_file, long timeout);

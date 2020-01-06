@@ -410,7 +410,7 @@ static void thermal_zone_device_set_polling(struct thermal_zone_device *tz,
 	else if (delay)
 		start_poll_queue(tz, delay);
 	else
-		cancel_delayed_work_sync(&tz->poll_queue);
+		cancel_delayed_work(&tz->poll_queue);
 }
 
 static void monitor_thermal_zone(struct thermal_zone_device *tz)
@@ -627,18 +627,14 @@ static void update_temperature(struct thermal_zone_device *tz)
 #endif
 }
 
-static void thermal_zone_device_init(struct thermal_zone_device *tz)
-{
-	struct thermal_instance *pos;
-	tz->temperature = THERMAL_TEMP_INVALID;
-	list_for_each_entry(pos, &tz->thermal_instances, tz_node)
-		pos->initialized = false;
-}
-
 static void thermal_zone_device_reset(struct thermal_zone_device *tz)
 {
+	struct thermal_instance *pos;
+
+	tz->temperature = THERMAL_TEMP_INVALID;
 	tz->passive = 0;
-	thermal_zone_device_init(tz);
+	list_for_each_entry(pos, &tz->thermal_instances, tz_node)
+		pos->initialized = false;
 }
 
 void thermal_zone_device_update(struct thermal_zone_device *tz,
@@ -2378,7 +2374,7 @@ static int thermal_pm_notify(struct notifier_block *nb,
 	case PM_POST_SUSPEND:
 		atomic_set(&in_suspend, 0);
 		list_for_each_entry(tz, &thermal_tz_list, node) {
-			thermal_zone_device_init(tz);
+			thermal_zone_device_reset(tz);
 			thermal_zone_device_update(tz,
 						   THERMAL_EVENT_UNSPECIFIED);
 		}

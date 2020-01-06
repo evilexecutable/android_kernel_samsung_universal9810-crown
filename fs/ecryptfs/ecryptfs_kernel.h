@@ -73,6 +73,7 @@
 
 #define ECRYPTFS_BASE_PATH_SIZE 1024
 #define ECRYPTFS_LABEL_SIZE 1024
+#define SEC_ECRYPTFS_HMAC_KEY_SIZE   32
 #ifdef CONFIG_SDP
 #define PKG_NAME_SIZE 16
 #endif
@@ -289,6 +290,7 @@ struct ecryptfs_crypt_stat {
 #ifdef CONFIG_DLP
 #define ECRYPTFS_DLP_ENABLED		  0x04000000
 #endif
+#define ECRYPTFS_SUPPORT_HMAC_KEY     0x00010000
 
 	u32 flags;
 	unsigned int file_version;
@@ -786,16 +788,20 @@ ecryptfs_add_global_auth_tok(struct ecryptfs_mount_crypt_stat *mount_crypt_stat,
 int ecryptfs_get_global_auth_tok_for_sig(
 	struct ecryptfs_global_auth_tok **global_auth_tok,
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat, char *sig);
+
 int
 ecryptfs_add_new_key_tfm(struct ecryptfs_key_tfm **key_tfm, char *cipher_name,
-			 size_t key_size, u32 mount_flags);
+    size_t key_size, u32 mount_flags);
+
 int ecryptfs_init_crypto(void);
 int ecryptfs_destroy_crypto(void);
+
 int ecryptfs_tfm_exists(char *cipher_name, char *cipher_mode, struct ecryptfs_key_tfm **key_tfm);
 int ecryptfs_get_tfm_and_mutex_for_cipher_name(struct crypto_skcipher **tfm,
 					       struct mutex **tfm_mutex,
 					       char *cipher_name,
 					       u32 mount_flags);
+
 int ecryptfs_keyring_auth_tok_for_sig(struct key **auth_tok_key,
 				      struct ecryptfs_auth_tok **auth_tok,
 				      char *sig);

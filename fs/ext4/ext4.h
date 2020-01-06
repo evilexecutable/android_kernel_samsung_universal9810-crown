@@ -34,7 +34,6 @@
 #include <crypto/hash.h>
 #include <linux/falloc.h>
 #include <linux/percpu-rwsem.h>
-#include <linux/android_aid.h>
 #ifdef __KERNEL__
 #include <linux/compat.h>
 #endif
@@ -1539,7 +1538,6 @@ struct ext4_sb_info {
 	unsigned int s_sec_defrag_writes_kb;
 	unsigned int s_sec_num_apps;
 	unsigned int s_sec_capacity_apps_kb;
-
 };
 
 static inline struct ext4_sb_info *EXT4_SB(struct super_block *sb)
@@ -2720,6 +2718,14 @@ extern void ext4_group_desc_csum_set(struct super_block *sb, __u32 group,
 extern int ext4_register_li_request(struct super_block *sb,
 				    ext4_group_t first_not_zeroed);
 
+/* for debugging, sangwoo2.lee */
+extern void print_iloc_info(struct super_block *sb, struct ext4_iloc iloc);
+extern void print_bh(struct super_block *sb,
+		struct buffer_head *bh, int start, int len);
+extern void print_block_data(struct super_block *sb, sector_t blocknr,
+		unsigned char *data_to_dump, int start, int len);
+/* for debugging */
+
 static inline int ext4_has_group_desc_csum(struct super_block *sb)
 {
 	return ext4_has_feature_gdt_csum(sb) ||
@@ -3276,14 +3282,9 @@ static inline bool ext4_android_claim_sec_r_blocks(unsigned int flags) {
 }
 
 static inline bool ext4_android_claim_r_blocks(struct ext4_sb_info *sbi) {
-#if ANDROID_VERSION < 90000
+	/* for O upgrade without factory reset */
 	if (in_group_p(AID_USE_ROOT_RESERVED))
 		return true;
-#else
-	/* for P upgrade without factory reset */
-	if (in_group_p(AID_RESERVED_DISK))
-		return true;
-#endif
 	return false;
 }
 

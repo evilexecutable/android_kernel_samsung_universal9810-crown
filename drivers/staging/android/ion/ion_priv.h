@@ -52,23 +52,24 @@ typedef enum ion_event_type {
 	ION_EVENT_TYPE_CLEAR,
 } ion_event_t;
 
+#define ION_EVENT_HEAPNAME	8
 struct ion_event_alloc {
 	void *id;
-	struct ion_heap *heap;
+	unsigned char heapname[ION_EVENT_HEAPNAME];
 	size_t size;
 	unsigned long flags;
 };
 
 struct ion_event_free {
 	void *id;
-	struct ion_heap *heap;
+	unsigned char heapname[ION_EVENT_HEAPNAME];
 	size_t size;
 	bool shrinker;
 };
 
 struct ion_event_mmap {
 	void *id;
-	struct ion_heap *heap;
+	unsigned char heapname[ION_EVENT_HEAPNAME];
 	size_t size;
 };
 
@@ -78,7 +79,7 @@ struct ion_event_shrink {
 
 struct ion_event_clear {
 	void *id;
-	struct ion_heap *heap;
+	unsigned char heapname[ION_EVENT_HEAPNAME];
 	size_t size;
 	unsigned long flags;
 };
@@ -655,16 +656,19 @@ void ion_free_nolock(struct ion_client *client, struct ion_handle *handle);
 
 int ion_handle_put_nolock(struct ion_handle *handle);
 
+struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
+						int id);
+
 int ion_handle_put(struct ion_client *client, struct ion_handle *handle);
 
 int ion_query_heaps(struct ion_client *client, struct ion_heap_query *query);
 
-int ion_share_dma_buf_fd_nolock(struct ion_client *client,
-				struct ion_handle *handle);
-
 struct ion_handle *__ion_alloc(struct ion_client *client, size_t len,
 			     size_t align, unsigned int heap_id_mask,
 			     unsigned int flags, bool grab_handle);
+
+int ion_share_dma_buf_fd_nolock(struct ion_client *client,
+				struct ion_handle *handle);
 
 void show_ion_system_heap_size(struct seq_file *s);
 void show_ion_system_heap_pool_size(struct seq_file *s);

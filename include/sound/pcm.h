@@ -100,7 +100,7 @@ struct snd_pcm_ops {
 #endif
 
 #define SNDRV_PCM_IOCTL1_RESET		0
-/* 1 is absent slot. */
+#define SNDRV_PCM_IOCTL1_INFO		1
 #define SNDRV_PCM_IOCTL1_CHANNEL_INFO	2
 #define SNDRV_PCM_IOCTL1_GSTATE		3
 #define SNDRV_PCM_IOCTL1_FIFO_SIZE	4
@@ -651,6 +651,9 @@ void snd_pcm_stream_unlock_irqrestore(struct snd_pcm_substream *substream,
  */
 static inline int snd_pcm_running(struct snd_pcm_substream *substream)
 {
+	if (!substream || !substream->runtime)
+		return 0;
+
 	return (substream->runtime->status->state == SNDRV_PCM_STATE_RUNNING ||
 		(substream->runtime->status->state == SNDRV_PCM_STATE_DRAINING &&
 		 substream->stream == SNDRV_PCM_STREAM_PLAYBACK));

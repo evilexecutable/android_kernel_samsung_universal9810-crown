@@ -9,6 +9,7 @@
  * published by the Free Software Foundation.
  */
 
+#include "../../../../../include/generated/autoconf.h"
 #include <dt-bindings/soc/samsung/exynos-ss-table.h>
 
 / {
@@ -119,6 +120,7 @@
 			compatible = "exynos,fimc_is_lib";
 			reg = <0x0 0xFF800000 0x800000>;
 			kernel_virt = <0xffffff80 0xfa000000>;
+			no-map;
 		};
 	};
 };

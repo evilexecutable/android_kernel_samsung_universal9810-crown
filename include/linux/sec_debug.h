@@ -165,6 +165,7 @@ enum sec_debug_reset_reason_t {
 	RR_B = 8,
 	RR_N = 9,
 	RR_T = 10,
+	RR_C = 11,
 };
 
 extern unsigned reset_reason;
@@ -434,6 +435,10 @@ extern void print_ppmpu_protection(struct pt_regs *regs);
 static inline void print_ppmpu_protection(struct pt_regs *regs) {}
 #endif
 
+#ifdef CONFIG_SEC_DEBUG_INIT_LOG
+extern void register_init_log_hook_func(void (*func)(const char *buf, size_t size));
+#endif
+
 #ifdef CONFIG_SEC_DEBUG_BRANCH_VERIFIER
 enum br_state {
 	BRSTATE_INIT,
@@ -501,7 +506,7 @@ struct tsp_dump_callbacks {
 
 extern unsigned int get_smpl_warn_number(void);
 extern void (*mach_restart)(enum reboot_mode mode, const char *cmd);
-extern int sec_debug_force_error(const char *val, const struct kernel_param *kp);
+extern int sec_debug_force_error(const char *val, struct kernel_param *kp);
 
 #ifdef CONFIG_SEC_DUMP_SUMMARY
 

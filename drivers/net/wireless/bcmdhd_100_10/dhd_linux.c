@@ -25,7 +25,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_linux.c 799707 2019-01-17 06:02:24Z $
+ * $Id: dhd_linux.c 846077 2019-10-17 03:09:04Z $
  */
 
 #include <typedefs.h>
@@ -2906,7 +2906,7 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 	uint roamvar = 1;
 #endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
-	int bcn_li_bcn;
+	int bcn_li_bcn = 1;
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
 	uint nd_ra_filter = 0;
 #ifdef ENABLE_IPMCAST_FILTER
@@ -3087,13 +3087,22 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				}
 #endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
-				bcn_li_bcn = 0;
+				if (bcn_li_dtim) {
+					bcn_li_bcn = 0;
+				}
 				ret = dhd_iovar(dhd, 0, "bcn_li_bcn", (char *)&bcn_li_bcn,
 						sizeof(bcn_li_bcn), NULL, 0, TRUE);
 				if (ret < 0) {
 					DHD_ERROR(("%s bcn_li_bcn failed %d\n", __FUNCTION__, ret));
 				}
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
+#if defined(WL_CFG80211) && defined(WL_BCNRECV)
+				ret = wl_android_bcnrecv_suspend(dhd_linux_get_primary_netdev(dhd));
+				if (ret != BCME_OK) {
+					DHD_ERROR(("failed to stop beacon recv event on"
+						" suspend state (%d)\n", ret));
+				}
+#endif /* WL_CFG80211 && WL_BCNRECV */
 #ifdef NDO_CONFIG_SUPPORT
 				if (dhd->ndo_enable) {
 					if (!dhd->ndo_host_ip_overflow) {
@@ -3171,6 +3180,13 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_PM, (char *)&power_mode,
 				                 sizeof(power_mode), TRUE, 0);
 #endif /* SUPPORT_PM2_ONLY */
+#if defined(WL_CFG80211) && defined(WL_BCNRECV)
+				ret = wl_android_bcnrecv_resume(dhd_linux_get_primary_netdev(dhd));
+				if (ret != BCME_OK) {
+					DHD_ERROR(("failed to resume beacon recv state (%d)\n",
+							ret));
+				}
+#endif /* WL_CF80211 && WL_BCNRECV */
 #ifdef PKT_FILTER_SUPPORT
 				/* disable pkt filter */
 				dhd_enable_packet_filter(0, dhd);
@@ -3254,7 +3270,6 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				}
 #endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
-				bcn_li_bcn = 1;
 				ret = dhd_iovar(dhd, 0, "bcn_li_bcn", (char *)&bcn_li_bcn,
 						sizeof(bcn_li_bcn), NULL, 0, TRUE);
 				if (ret < 0) {
@@ -7188,6 +7203,7 @@ dhd_add_monitor_if(dhd_info_t *dhd)
 		DHD_ERROR(("%s, register_netdev failed for %s\n",
 			__FUNCTION__, dev->name));
 		free_netdev(dev);
+		return;
 	}
 
 	if (FW_SUPPORTED((&dhd->pub), monitor)) {
@@ -9258,11 +9274,7 @@ dhd_wlan_power_off_handler(void *handler, unsigned char reason)
 		/* save core dump to a file */
 		if (dhdp->memdump_enabled) {
 #ifdef DHD_SSSR_DUMP
-			if (dhdp->sssr_inited) {
-				dhdp->info->no_wq_sssrdump = TRUE;
-				dhd_bus_sssr_dump(dhdp);
-				dhdp->info->no_wq_sssrdump = FALSE;
-			}
+                        dhdp->collect_sssr = TRUE;
 #endif /* DHD_SSSR_DUMP */
 			dhdp->memdump_type = DUMP_TYPE_DUE_TO_BT;
 			dhd_bus_mem_dump(dhdp);
@@ -11034,6 +11046,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #else
 	dhd->max_dtim_enable = FALSE;
 #endif /* ENABLE_MAX_DTIM_IN_SUSPEND */
+	dhd->disable_dtim_in_suspend = FALSE;
 #ifdef CUSTOM_SET_OCLOFF
 	dhd->ocl_off = FALSE;
 #endif /* CUSTOM_SET_OCLOFF */
@@ -11826,6 +11839,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef SUPPORT_EVT_SDB_LOG
 		setbit(eventmask_msg->mask, WLC_E_SDB_TRANSITION);
 #endif /* SUPPORT_EVT_SDB_LOG */
+#ifdef WL_BCNRECV
+		setbit(eventmask_msg->mask, WLC_E_BCNRECV_ABORTED);
+#endif /* WL_BCNRECV */
 		/* Write updated Event mask */
 		eventmask_msg->ver = EVENTMSGS_VER;
 		eventmask_msg->command = EVENTMSGS_SET_MASK;
@@ -14568,6 +14584,26 @@ int net_os_set_max_dtim_enable(struct net_device *dev, int val)
 			dhd->pub.max_dtim_enable = TRUE;
 		} else {
 			dhd->pub.max_dtim_enable = FALSE;
+		}
+	} else {
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+net_os_set_disable_dtim_in_suspend(struct net_device *dev, int val)
+{
+	dhd_info_t *dhd = DHD_DEV_INFO(dev);
+
+	if (dhd) {
+		DHD_ERROR(("%s: Disable bcn_li_dtim in suspend : %s\n",
+			__FUNCTION__, (val ? "Enable" : "Disable")));
+		if (val) {
+			dhd->pub.disable_dtim_in_suspend = TRUE;
+		} else {
+			dhd->pub.disable_dtim_in_suspend = FALSE;
 		}
 	} else {
 		return -1;
@@ -18084,6 +18120,12 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	}
 	DHD_GENERAL_UNLOCK(dhdp, flags);
 
+#ifdef DHD_SSSR_DUMP
+	if (dhdp->sssr_inited && dhdp->collect_sssr) {
+		dhdpcie_sssr_dump(dhdp);
+	}
+	dhdp->collect_sssr = FALSE;
+#endif /* DHD_SSSR_DUMP */
 #ifdef D2H_MINIDUMP
 	/* dump minidump */
 	if (dhd_bus_is_minidump_enabled(dhdp)) {
@@ -18210,9 +18252,9 @@ dhd_d2h_minidump(dhd_pub_t *dhdp)
 #ifdef DHD_SSSR_DUMP
 
 static void
-dhd_sssr_dump(void *handle, void *event_info, u8 event)
+dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 {
-	dhd_info_t *dhd = handle;
+        dhd_info_t *dhd = dhdinfo;
 	dhd_pub_t *dhdp;
 	int i;
 	char before_sr_dump[128];
@@ -18230,6 +18272,7 @@ dhd_sssr_dump(void *handle, void *event_info, u8 event)
 	dhdp = &dhd->pub;
 
 	DHD_GENERAL_LOCK(dhdp, flags);
+	DHD_BUS_BUSY_SET_IN_SSSRDUMP(dhdp);
 	if (DHD_BUS_CHECK_DOWN_OR_DOWN_IN_PROGRESS(dhdp)) {
 		DHD_GENERAL_UNLOCK(dhdp, flags);
 		DHD_ERROR(("%s: bus is down! can't collect sssr dump. \n", __FUNCTION__));
@@ -18294,25 +18337,18 @@ exit:
 }
 
 void
-dhd_schedule_sssr_dump(dhd_pub_t *dhdp)
+dhd_write_sssr_dump(dhd_pub_t *dhdp)
 {
-	unsigned long flags = 0;
-
-	/* bus busy bit for sssr dump will be cleared in sssr dump
-	* work item context, after sssr dump files are created
-	*/
-	DHD_GENERAL_LOCK(dhdp, flags);
-	DHD_BUS_BUSY_SET_IN_SSSRDUMP(dhdp);
-	DHD_GENERAL_UNLOCK(dhdp, flags);
-
-	if (dhdp->info->no_wq_sssrdump) {
-		dhd_sssr_dump(dhdp->info, 0, 0);
-		return;
-	}
-
-	DHD_ERROR(("%s: scheduling sssr dump.. \n", __FUNCTION__));
-	dhd_deferred_schedule_work(dhdp->info->dhd_deferred_wq, NULL,
-		DHD_WQ_WORK_SSSR_DUMP, dhd_sssr_dump, DHD_WQ_WORK_PRIORITY_HIGH);
+	/*
+	 * dhd_mem_dump -> dhd_sssr_dump -> dhd_write_sssr_dump
+	 * Without workqueue -
+	 * DUMP_TYPE_DONGLE_INIT_FAILURE/DUMP_TYPE_DUE_TO_BT/DUMP_TYPE_SMMU_FAULT
+	 * : These are called in own handler, not in the interrupt context
+	 * With workqueue - all other DUMP_TYPEs : dhd_mem_dump is called in workqueue
+	 * Thus, it doesn't neeed to dump SSSR in workqueue
+	 */
+	DHD_ERROR(("%s: writing sssr dump to file... \n", __FUNCTION__));
+	dhd_sssr_dump_to_file(dhdp->info);
 }
 #endif /* DHD_SSSR_DUMP */
 
@@ -19273,7 +19309,7 @@ int custom_rps_map_set(struct netdev_rx_queue *queue, char *buf, size_t len)
 	}
 
 	map = kzalloc(max_t(unsigned int,
-		RPS_MAP_SIZE(cpumask_weight(mask)), L1_CACHE_BYTES),
+		(unsigned int)RPS_MAP_SIZE(cpumask_weight(mask)), L1_CACHE_BYTES),
 		GFP_KERNEL);
 	if (!map) {
 		free_cpumask_var(mask);
@@ -22056,6 +22092,15 @@ dhd_debug_info_dump(void)
 	DHD_OS_WAKE_UNLOCK(dhdp);
 }
 EXPORT_SYMBOL(dhd_debug_info_dump);
+
+void
+dhd_smmu_fault_handler(uint32 axid, ulong fault_addr)
+{
+	DHD_ERROR(("%s: Trigger SMMU Fault\n", __FUNCTION__));
+	DHD_ERROR(("%s: axid:0x%x, fault_addr:0x%lx", __FUNCTION__, axid, fault_addr));
+	dhd_debug_info_dump();
+}
+EXPORT_SYMBOL(dhd_smmu_fault_handler);
 #endif /* DHD_MAP_LOGGING */
 int
 dhd_get_host_whitelist_region(void *buf, uint len)

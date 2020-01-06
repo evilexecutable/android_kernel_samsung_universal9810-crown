@@ -89,33 +89,18 @@ static inline int notify_page_fault(struct pt_regs *regs, unsigned int esr)
 #endif
 
 /*
- * Dump out the page tables associated with 'addr' in the currently active mm.
+ * Dump out the page tables associated with 'addr' in mm 'mm'.
  */
-void show_pte(unsigned long addr)
+void show_pte(struct mm_struct *mm, unsigned long addr)
 {
-	struct mm_struct *mm;
 	pgd_t *pgd;
 
-	if (addr < TASK_SIZE) {
-		/* TTBR0 */
-		mm = current->active_mm;
-		if (mm == &init_mm) {
-			pr_alert("[%016lx] user address but active_mm is swapper\n",
-				 addr);
-			return;
-		}
-	} else if (addr >= VA_START) {
-		/* TTBR1 */
+	if (!mm)
 		mm = &init_mm;
-	} else {
-		pr_alert("[%016lx] address between user and kernel address ranges\n",
-			 addr);
-		return;
-	}
 
 	pr_alert("pgd = %p\n", mm->pgd);
 	pgd = pgd_offset(mm, addr);
-	pr_alert("[%016lx] *pgd=%016llx", addr, pgd_val(*pgd));
+	pr_alert("[%08lx] *pgd=%016llx", addr, pgd_val(*pgd));
 
 	do {
 		pud_t *pud;
@@ -213,8 +198,8 @@ static bool is_el1_instruction_abort(unsigned int esr)
 /*
  * The kernel tried to access some page that wasn't present.
  */
-static void __do_kernel_fault(unsigned long addr, unsigned int esr,
-			      struct pt_regs *regs)
+static void __do_kernel_fault(struct mm_struct *mm, unsigned long addr,
+			      unsigned int esr, struct pt_regs *regs)
 {
 	/*
 	 * Are we prepared to handle this kernel fault?
@@ -239,7 +224,7 @@ static void __do_kernel_fault(unsigned long addr, unsigned int esr,
 	sec_debug_set_extra_info_fault(KERNEL_FAULT, addr, regs);
 #endif
 
-	show_pte(addr);
+	show_pte(mm, addr);
 	die("Oops", regs, esr);
 	bust_spinlocks(0);
 	do_exit(SIGKILL);
@@ -261,6 +246,7 @@ static void __do_user_fault(struct task_struct *tsk, unsigned long addr,
 		pr_info("%s[%d]: unhandled %s (%d) at 0x%08lx, esr 0x%03x\n",
 			tsk->comm, task_pid_nr(tsk), inf->name, sig,
 			addr, esr);
+		show_pte(tsk->mm, addr);
 		show_regs(regs);
 	}
 
@@ -276,6 +262,7 @@ static void __do_user_fault(struct task_struct *tsk, unsigned long addr,
 static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
 	struct task_struct *tsk = current;
+	struct mm_struct *mm = tsk->active_mm;
 	const struct fault_info *inf;
 
 	/*
@@ -286,7 +273,7 @@ static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *re
 		inf = esr_to_fault_info(esr);
 		__do_user_fault(tsk, addr, esr, inf->sig, inf->code, regs);
 	} else
-		__do_kernel_fault(addr, esr, regs);
+		__do_kernel_fault(mm, addr, esr, regs);
 }
 
 #define VM_FAULT_BADMAP		0x010000
@@ -533,7 +520,7 @@ retry:
 	return 0;
 
 no_context:
-	__do_kernel_fault(addr, esr, regs);
+	__do_kernel_fault(mm, addr, esr, regs);
 	return 0;
 }
 
@@ -645,7 +632,7 @@ static const struct fault_info fault_info[] = {
 	{ do_bad,		SIGBUS,  0,		"unknown 55"			},
 	{ do_bad,		SIGBUS,  0,		"unknown 56"			},
 	{ do_bad,		SIGBUS,  0,		"unknown 57"			},
-	{ do_bad,		SIGBUS,  0,		"unknown 58" 			},
+	{ do_bad,		SIGBUS,  0,		"unknown 58"			},
 	{ do_bad,		SIGBUS,  0,		"unknown 59"			},
 	{ do_bad,		SIGBUS,  0,		"unknown 60"			},
 	{ do_bad,		SIGBUS,  0,		"section domain fault"		},
@@ -779,12 +766,11 @@ void __init hook_debug_fault_code(int nr,
 	debug_fault_info[nr].name	= name;
 }
 
-asmlinkage int __exception do_debug_exception(unsigned long addr_if_watchpoint,
+asmlinkage int __exception do_debug_exception(unsigned long addr,
 					      unsigned int esr,
 					      struct pt_regs *regs)
 {
 	const struct fault_info *inf = debug_fault_info + DBG_ESR_EVT(esr);
-	unsigned long pc = instruction_pointer(regs);
 	struct siginfo info;
 	int rv;
 
@@ -795,19 +781,19 @@ asmlinkage int __exception do_debug_exception(unsigned long addr_if_watchpoint,
 	if (interrupts_enabled(regs))
 		trace_hardirqs_off();
 
-	if (user_mode(regs) && pc > TASK_SIZE)
+	if (user_mode(regs) && instruction_pointer(regs) > TASK_SIZE)
 		arm64_apply_bp_hardening();
 
-	if (!inf->fn(addr_if_watchpoint, esr, regs)) {
+	if (!inf->fn(addr, esr, regs)) {
 		rv = 1;
 	} else {
 		pr_alert("Unhandled debug exception: %s (0x%08x) at 0x%016lx\n",
-			 inf->name, esr, pc);
+			 inf->name, esr, addr);
 
 		info.si_signo = inf->sig;
 		info.si_errno = 0;
 		info.si_code  = inf->code;
-		info.si_addr  = (void __user *)pc;
+		info.si_addr  = (void __user *)addr;
 		arm64_notify_die("", regs, &info, 0);
 		rv = 0;
 	}

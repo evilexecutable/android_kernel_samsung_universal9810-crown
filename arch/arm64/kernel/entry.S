@@ -31,8 +31,8 @@
 #include <asm/irq.h>
 #include <asm/memory.h>
 #include <asm/mmu.h>
-#include <asm/processor.h>
 #include <asm/ptrace.h>
+#include <asm/processor.h>
 #include <asm/thread_info.h>
 #include <asm/uaccess.h>
 #include <asm/asm-uaccess.h>
@@ -473,8 +473,8 @@ END(vectors)
 	 * EC: DABT(10010x) && DFSC: 110000
 	 */
 	mov	x0, #0x3a
-	and	x3, x1, x0			// bit mask 111010
-	cmp	x3, #0x20			// check d/i abort
+	and	x3, x1, x0			// bit mask 111010 
+	cmp	x3, #0x20			// check d/i abort 
 	b.ne	4f
 
 	mov	x0, #0x3f
@@ -501,9 +501,9 @@ END(vectors)
 
 	/* save important information */
 	ldr	x1, =entry_dbg_saved_data
-	mov	x0, \el			//
+	mov	x0, \el			// 
 	str	x0, [x1, #0x8]		// save el
-	mrs	x0, esr_el1		// read the syndrome register
+	mrs	x0, esr_el1		// read the syndrome register	
 	str	x0, [x1, #0x10]		// save esr
 	mrs	x0, elr_el1
 	str	x0, [x1, #0x18]		// save elr
@@ -1069,6 +1069,8 @@ el0_svc_naked:					// compat entry point
 	b.ne	__sys_trace
 	cmp     scno, sc_nr                     // check upper syscall limit
 	b.hs	ni_sys
+	mask_nospec64 scno, sc_nr, x19	// enforce bounds for syscall number
+
 #ifdef CONFIG_SECURITY_DEFEX
 /*
  * Defex enter hook
@@ -1092,7 +1094,6 @@ el0_svc_naked:					// compat entry point
 
 2:
 #endif
-	mask_nospec64 scno, sc_nr, x19	// enforce bounds for syscall number
 	ldr	x16, [stbl, scno, lsl #3]	// address in the syscall table
 	blr	x16				// call sys_* routine
 	b	ret_fast_syscall
@@ -1210,13 +1211,17 @@ __ni_sys_trace:
 	tramp_map_kernel	x30
 #ifdef CONFIG_RANDOMIZE_BASE
 	adr	x30, tramp_vectors + PAGE_SIZE
+#ifdef CONFIG_QCOM_FALKOR_ERRATUM_1003
+alternative_insn isb, nop, ARM64_WORKAROUND_QCOM_FALKOR_E1003
+#else
 #ifndef CONFIG_ARCH_MSM8996
 	isb
-#endif
+#endif /* CONFIG_ARCH_MSM8996 */
+#endif /*CONFIG_QCOM_FALKOR_ERRATUM_1003 */
 	ldr	x30, [x30]
 #else
 	ldr	x30, =vectors
-#endif
+#endif /* CONFIG_RANDOMIZE_BASE */
 	prfm	plil1strm, [x30, #(1b - tramp_vectors)]
 	msr	vbar_el1, x30
 	add	x30, x30, #(1b - tramp_vectors)

@@ -53,8 +53,6 @@ void tcp_time_wait(struct sock *sk, int state, int timeo);
 
 #define MAX_TCP_HEADER	(128 + MAX_HEADER)
 #define MAX_TCP_OPTION_SPACE 40
-#define TCP_MIN_SND_MSS		48
-#define TCP_MIN_GSO_SIZE	(TCP_MIN_SND_MSS - MAX_TCP_OPTION_SPACE)
 
 /*
  * Never offer a window over 32767 without using window scaling. Some
@@ -253,7 +251,9 @@ void tcp_time_wait(struct sock *sk, int state, int timeo);
 #define FLAG_DSACKING_ACK       0x800 /* SACK blocks contained D-SACK info */
 #define FLAG_SACK_RENEGING      0x2000 /* snd_una advanced to a sacked seq */
 #define FLAG_UPDATE_TS_RECENT   0x4000 /* tcp_replace_ts_recent() */
-#define MPTCP_FLAG_DATA_ACKED	0x8000
+#define FLAG_NO_CHALLENGE_ACK	0x8000 /* do not call tcp_send_challenge_ack()	*/
+
+#define MPTCP_FLAG_DATA_ACKED	0x10000
 
 #define FLAG_ACKED              (FLAG_DATA_ACKED|FLAG_SYN_ACKED)
 #define FLAG_NOT_DUP            (FLAG_DATA|FLAG_WIN_UPDATE|FLAG_ACKED)
@@ -492,13 +492,13 @@ void tcp_twsk_destructor(struct sock *sk);
 ssize_t tcp_splice_read(struct socket *sk, loff_t *ppos,
 			struct pipe_inode_info *pipe, size_t len,
 			unsigned int flags);
+
+void tcp_enter_quickack_mode(struct sock *sk, unsigned int max_quickacks);
 extern int tcp_use_userconfig_sysctl_handler(struct ctl_table *, int,
 				void __user *, size_t *, loff_t *);
 extern int tcp_proc_delayed_ack_control(struct ctl_table *table, int write,
 			void __user *buffer, size_t *length,
 			loff_t *ppos);
-
-void tcp_enter_quickack_mode(struct sock *sk, unsigned int max_quickacks);
 static inline void tcp_dec_quickack_mode(struct sock *sk,
 					 const unsigned int pkts)
 {
@@ -1028,6 +1028,8 @@ enum tcp_ca_event {
 	CA_EVENT_LOSS,		/* loss timeout */
 	CA_EVENT_ECN_NO_CE,	/* ECT set, but not CE marked */
 	CA_EVENT_ECN_IS_CE,	/* received CE marked IP packet */
+	CA_EVENT_DELAYED_ACK,	/* Delayed ack is sent */
+	CA_EVENT_NON_DELAYED_ACK,
 };
 
 /* Information about inbound ACK, passed to cong_ops->in_ack_event() */
@@ -1718,11 +1720,6 @@ bool tcp_fastopen_cookie_check(struct sock *sk, u16 *mss,
 bool tcp_fastopen_defer_connect(struct sock *sk, int *err);
 #define TCP_FASTOPEN_KEY_LENGTH 16
 
-static inline void tcp_init_send_head(struct sock *sk)
-{
-	sk->sk_send_head = NULL;
-}
-
 /* Fastopen key context */
 struct tcp_fastopen_context {
 	struct crypto_cipher	*tfm;
@@ -1739,8 +1736,6 @@ static inline void tcp_write_queue_purge(struct sock *sk)
 		sk_wmem_free_skb(sk, skb);
 	sk_mem_reclaim(sk);
 	tcp_clear_all_retrans_hints(tcp_sk(sk));
-	tcp_init_send_head(sk);
-	inet_csk(sk)->icsk_backoff = 0;
 }
 
 static inline struct sk_buff *tcp_write_queue_head(const struct sock *sk)
@@ -1801,25 +1796,9 @@ static inline void tcp_check_send_head(struct sock *sk, struct sk_buff *skb_unli
 		tcp_sk(sk)->highest_sack = NULL;
 }
 
-static inline struct sk_buff *tcp_rtx_queue_head(const struct sock *sk)
+static inline void tcp_init_send_head(struct sock *sk)
 {
-	struct sk_buff *skb = tcp_write_queue_head(sk);
-
-	if (skb == tcp_send_head(sk))
-		skb = NULL;
-
-	return skb;
-}
-
-static inline struct sk_buff *tcp_rtx_queue_tail(const struct sock *sk)
-{
-	struct sk_buff *skb = tcp_send_head(sk);
-
-	/* empty retransmit queue, for example due to zero window */
-	if (skb == tcp_write_queue_head(sk))
-		return NULL;
-
-	return skb ? tcp_write_queue_prev(sk, skb) : tcp_write_queue_tail(sk);
+	sk->sk_send_head = NULL;
 }
 
 static inline void __tcp_add_write_queue_tail(struct sock *sk, struct sk_buff *skb)

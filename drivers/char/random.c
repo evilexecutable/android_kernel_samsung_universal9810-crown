@@ -851,12 +851,12 @@ static int crng_fast_load(const char *cp, size_t len)
  */
 static int crng_slow_load(const char *cp, size_t len)
 {
-	unsigned long		flags;
-	static unsigned char	lfsr = 1;
-	unsigned char		tmp;
-	unsigned int		i, max = CHACHA20_KEY_SIZE;
-	const char *		src_buf = cp;
-	char *			dest_buf = (char *) &primary_crng.state[4];
+	unsigned long flags;
+	static unsigned char lfsr = 1;
+	unsigned char tmp;
+	unsigned int i, max = CHACHA20_KEY_SIZE;
+	const char *src_buf = cp;
+	char *dest_buf = (char *) &primary_crng.state[4];
 
 	if (!spin_trylock_irqsave(&primary_crng.lock, flags))
 		return 0;

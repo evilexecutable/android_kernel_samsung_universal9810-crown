@@ -639,11 +639,14 @@ static int usbhsg_ep_disable(struct usb_ep *ep)
 	struct usbhsg_uep *uep = usbhsg_ep_to_uep(ep);
 	struct usbhs_pipe *pipe;
 	unsigned long flags;
+	int ret = 0;
 
 	spin_lock_irqsave(&uep->lock, flags);
 	pipe = usbhsg_uep_to_pipe(uep);
-	if (!pipe)
+	if (!pipe) {
+		ret = -EINVAL;
 		goto out;
+	}
 
 	usbhsg_pipe_disable(uep);
 	usbhs_pipe_free(pipe);
@@ -729,25 +732,14 @@ static int __usbhsg_ep_set_halt_wedge(struct usb_ep *ep, int halt, int wedge)
 	struct usbhs_priv *priv = usbhsg_gpriv_to_priv(gpriv);
 	struct device *dev = usbhsg_gpriv_to_dev(gpriv);
 	unsigned long flags;
-	int ret = 0;
+
+	usbhsg_pipe_disable(uep);
 
 	dev_dbg(dev, "set halt %d (pipe %d)\n",
 		halt, usbhs_pipe_number(pipe));
 
 	/********************  spin lock ********************/
 	usbhs_lock(priv, flags);
-
-	/*
-	 * According to usb_ep_set_halt()'s description, this function should
-	 * return -EAGAIN if the IN endpoint has any queue or data. Note
-	 * that the usbhs_pipe_is_dir_in() returns false if the pipe is an
-	 * IN endpoint in the gadget mode.
-	 */
-	if (!usbhs_pipe_is_dir_in(pipe) && (__usbhsf_pkt_get(pipe) ||
-	    usbhs_pipe_contains_transmittable_data(pipe))) {
-		ret = -EAGAIN;
-		goto out;
-	}
 
 	if (halt)
 		usbhs_pipe_stall(pipe);
@@ -759,11 +751,10 @@ static int __usbhsg_ep_set_halt_wedge(struct usb_ep *ep, int halt, int wedge)
 	else
 		usbhsg_status_clr(gpriv, USBHSG_STATUS_WEDGE);
 
-out:
 	usbhs_unlock(priv, flags);
 	/********************  spin unlock ******************/
 
-	return ret;
+	return 0;
 }
 
 static int usbhsg_ep_set_halt(struct usb_ep *ep, int value)
@@ -1094,6 +1085,7 @@ int usbhs_mod_gadget_probe(struct usbhs_priv *priv)
 		ret = -ENOMEM;
 		goto usbhs_mod_gadget_probe_err_gpriv;
 	}
+	spin_lock_init(&uep->lock);
 
 	gpriv->transceiver = usb_get_phy(USB_PHY_TYPE_UNDEFINED);
 	dev_info(dev, "%stransceiver found\n",
@@ -1143,7 +1135,6 @@ int usbhs_mod_gadget_probe(struct usbhs_priv *priv)
 		uep->ep.name		= uep->ep_name;
 		uep->ep.ops		= &usbhsg_ep_ops;
 		INIT_LIST_HEAD(&uep->ep.ep_list);
-		spin_lock_init(&uep->lock);
 
 		/* init DCP */
 		if (usbhsg_is_dcp(uep)) {

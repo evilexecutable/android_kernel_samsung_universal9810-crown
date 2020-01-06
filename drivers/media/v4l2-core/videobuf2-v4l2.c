@@ -150,7 +150,7 @@ static void __copy_timestamp(struct vb2_buffer *vb, void *pb)
 			struct sync_pt *pt;
 			struct sync_file *sync_file;
 
-			pt = sync_pt_create(q->timeline, q->timeline_max);
+			pt = sync_pt_create(q->timeline, sizeof(*pt), q->timeline_max);
 			if (!pt) {
 				dprintk(1, "qbuf: failed to create sync_pt\n");
 				put_unused_fd(fd);
@@ -179,6 +179,7 @@ static void vb2_warn_zero_bytesused(struct vb2_buffer *vb)
 		return;
 
 	check_once = true;
+	/* WARN_ON(1); */
 
 	pr_warn("use of bytesused == 0 is deprecated and will be removed in the future,\n");
 	if (vb->vb2_queue->allow_zero_bytesused)

@@ -244,7 +244,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 							   inet->inet_sport,
 							   usin->sin_port);
 
-	inet->inet_id = prandom_u32();
+	inet->inet_id = tp->write_seq ^ jiffies;
 
 	if (tcp_fastopen_defer_connect(sk, &err))
 		return err;
@@ -504,14 +504,13 @@ void tcp_v4_err(struct sk_buff *icmp_skb, u32 info)
 #endif
 			break;
 
-		skb = tcp_write_queue_head(sk);
-		if (WARN_ON_ONCE(!skb))
-			break;
-
 		icsk->icsk_backoff--;
 		icsk->icsk_rto = tp->srtt_us ? __tcp_set_rto(tp) :
 					       TCP_TIMEOUT_INIT;
 		icsk->icsk_rto = inet_csk_rto_backoff(icsk, TCP_RTO_MAX);
+
+		skb = tcp_write_queue_head(sk);
+		BUG_ON(!skb);
 
 		remaining = icsk->icsk_rto -
 			    min(icsk->icsk_rto,
@@ -981,11 +980,9 @@ int tcp_v4_send_synack(const struct sock *sk, struct dst_entry *dst,
 	if (skb) {
 		__tcp_v4_send_check(skb, ireq->ir_loc_addr, ireq->ir_rmt_addr);
 
-		rcu_read_lock();
 		err = ip_build_and_send_pkt(skb, sk, ireq->ir_loc_addr,
 					    ireq->ir_rmt_addr,
-					    rcu_dereference(ireq->ireq_opt));
-		rcu_read_unlock();
+					    ireq_opt_deref(ireq));
 		err = net_xmit_eval(err);
 	}
 
@@ -1443,7 +1440,7 @@ struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
 	inet_csk(newsk)->icsk_ext_hdr_len = 0;
 	if (inet_opt)
 		inet_csk(newsk)->icsk_ext_hdr_len = inet_opt->opt.optlen;
-	newinet->inet_id = prandom_u32();
+	newinet->inet_id = newtp->write_seq ^ jiffies;
 
 	if (!dst) {
 		dst = inet_csk_route_child_sock(sk, newsk, req);
@@ -2712,12 +2709,6 @@ static int __net_init tcp_sk_init(struct net *net)
 		if (res)
 			goto fail;
 		sock_set_flag(sk, SOCK_USE_WRITE_QUEUE);
-
-		/* Please enforce IP_DF and IPID==0 for RST and
-		 * ACK sent in SYN-RECV and TIME-WAIT state.
-		 */
-		inet_sk(sk)->pmtudisc = IP_PMTUDISC_DO;
-
 		*per_cpu_ptr(net->ipv4.tcp_sk, cpu) = sk;
 	}
 
@@ -2725,7 +2716,6 @@ static int __net_init tcp_sk_init(struct net *net)
 	net->ipv4.sysctl_tcp_ecn_fallback = 1;
 
 	net->ipv4.sysctl_tcp_base_mss = TCP_BASE_MSS;
-	net->ipv4.sysctl_tcp_min_snd_mss = TCP_MIN_SND_MSS;
 	net->ipv4.sysctl_tcp_probe_threshold = TCP_PROBE_THRESHOLD;
 	net->ipv4.sysctl_tcp_probe_interval = TCP_PROBE_INTERVAL;
 

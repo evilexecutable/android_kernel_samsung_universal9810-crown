@@ -100,6 +100,11 @@
 #include <linux/rkp.h>
 #endif
 
+#ifdef CONFIG_SECURITY_DEFEX
+#include <linux/defex.h>
+void __init __weak defex_load_rules(void) { }
+#endif
+
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
@@ -543,6 +548,7 @@ static void __init mm_init(void)
 	 */
 	page_ext_init_flatmem();
 	mem_init();
+	set_memsize_kernel_type(MEMSIZE_KERNEL_STOP);
 	kmem_cache_init();
 	percpu_init_late();
 	pgtable_init();
@@ -552,7 +558,6 @@ static void __init mm_init(void)
 #ifdef CONFIG_PTRACK_DEBUG
 	ptrack_init();
 #endif
-	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 }
 
 #ifdef CONFIG_UH_RKP
@@ -591,9 +596,10 @@ static void __init rkp_init(void)
 #endif
 	init.fimc_phys_addr = 0;
 
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 	init.tramp_pgd = (u64)__pa(tramp_pg_dir);
 	init.tramp_valias = (u64)TRAMP_VALIAS;
-
+#endif
 	for (p = vmlist; p; p = p->next) {
 		if (p->addr == (void *)FIMC_LIB_START_VA) {
 			init.fimc_phys_addr = (u64)(p->phys_addr);
@@ -688,15 +694,15 @@ asmlinkage __visible void __init start_kernel(void)
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
+	boot_cpu_state_init();
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
-	boot_cpu_hotplug_init();
 
 	build_all_zonelists(NULL, NULL);
 	page_alloc_init();
 
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 	pr_notice("Kernel command line: %s\n", boot_command_line);
-	/* parameters may set static keys */
-	jump_label_init();
+#endif
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
@@ -705,6 +711,8 @@ asmlinkage __visible void __init start_kernel(void)
 	if (!IS_ERR_OR_NULL(after_dashes))
 		parse_args("Setting init args", after_dashes, NULL, 0, -1, -1,
 			   NULL, set_init_arg);
+
+	jump_label_init();
 
 	/*
 	 * These use large bootmem allocations and must precede
@@ -819,7 +827,7 @@ asmlinkage __visible void __init start_kernel(void)
 #endif
 	thread_stack_cache_init();
 #ifdef CONFIG_RKP_KDP
-	if (rkp_cred_enable)
+	if (rkp_cred_enable) 
 		kdp_init();
 #endif /*CONFIG_RKP_KDP*/
 	cred_init();
@@ -852,7 +860,6 @@ asmlinkage __visible void __init start_kernel(void)
 
 	ftrace_init();
 
-	set_memsize_kernel_type(MEMSIZE_KERNEL_STOP);
 	/* Do the rest non-__init'ed, we're now alive */
 	rest_init();
 }
@@ -1113,7 +1120,7 @@ static int try_to_run_init_process(const char *init_filename)
 
 static noinline void __init kernel_init_freeable(void);
 
-#if defined(CONFIG_DEBUG_RODATA) || defined(CONFIG_DEBUG_SET_MODULE_RONX)
+#if defined(CONFIG_DEBUG_RODATA) || defined(CONFIG_SET_MODULE_RONX)
 bool rodata_enabled __ro_after_init = true;
 static int __init set_debug_rodata(char *str)
 {
@@ -1170,7 +1177,6 @@ static int __ref kernel_init(void *unused)
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret) {
 #ifdef CONFIG_DEFERRED_INITCALLS
-
 			schedule_work(&deferred_initcall_work);
 #endif
 			return 0;
@@ -1188,6 +1194,9 @@ static int __ref kernel_init(void *unused)
 	if (execute_command) {
 		ret = run_init_process(execute_command);
 		if (!ret)
+#ifdef CONFIG_DEFERRED_INITCALLS
+			schedule_work(&deferred_initcall_work);
+#endif
 			return 0;
 		panic("Requested init %s failed (error %d).",
 		      execute_command, ret);
@@ -1266,4 +1275,7 @@ static noinline void __init kernel_init_freeable(void)
 
 	integrity_load_keys();
 	load_default_modules();
+#ifdef CONFIG_SECURITY_DEFEX
+	defex_load_rules();
+#endif
 }

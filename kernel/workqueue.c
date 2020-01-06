@@ -48,8 +48,8 @@
 #include <linux/nodemask.h>
 #include <linux/moduleparam.h>
 #include <linux/uaccess.h>
-#include <linux/nmi.h>
 #include <linux/exynos-ss.h>
+#include <linux/nmi.h>
 
 #include "workqueue_internal.h"
 

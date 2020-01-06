@@ -426,9 +426,9 @@ void die(const char *str, struct pt_regs *regs, int err)
 	int ret;
 	unsigned long flags;
 
-	raw_spin_lock_irqsave(&die_lock, flags);
-
 	oops_enter();
+
+	raw_spin_lock_irqsave(&die_lock, flags);
 
 	console_verbose();
 	bust_spinlocks(1);
@@ -442,6 +442,8 @@ void die(const char *str, struct pt_regs *regs, int err)
 
 	bust_spinlocks(0);
 	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
+	raw_spin_unlock_irqrestore(&die_lock, flags);
+
 	oops_exit();
 
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
@@ -470,9 +472,6 @@ void die(const char *str, struct pt_regs *regs, int err)
 	if (panic_on_oops)
 		panic("Fatal exception");
 #endif
-
-	raw_spin_unlock_irqrestore(&die_lock, flags);
-
 	if (ret != NOTIFY_STOP)
 		do_exit(SIGSEGV);
 }
@@ -946,7 +945,7 @@ static int bug_handler(struct pt_regs *regs, unsigned int esr)
 	case BUG_TRAP_TYPE_BUG:
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
 		sec_debug_set_extra_info_fault(BUG_FAULT, (unsigned long)regs->pc, regs);
-#endif
+#endif		
 		die("Oops - BUG", regs, 0);
 		break;
 

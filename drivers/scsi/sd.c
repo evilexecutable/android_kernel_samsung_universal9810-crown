@@ -215,12 +215,6 @@ cache_type_store(struct device *dev, struct device_attribute *attr,
 	sp = buffer_data[0] & 0x80 ? 1 : 0;
 	buffer_data[0] &= ~0x80;
 
-	/*
-	 * Ensure WP, DPOFUA, and RESERVED fields are cleared in
-	 * received mode parameter buffer before doing MODE SELECT.
-	 */
-	data.device_specific = 0;
-
 	if (scsi_mode_select(sdp, 1, sp, 8, buffer_data, len, SD_TIMEOUT,
 			     SD_MAX_RETRIES, &data, &sshdr)) {
 		if (scsi_sense_valid(&sshdr))
@@ -1194,8 +1188,7 @@ static int sd_init_command(struct scsi_cmnd *cmd)
 	case REQ_OP_WRITE:
 		return sd_setup_read_write_cmnd(cmd);
 	default:
-		WARN_ON_ONCE(1);
-		return BLKPREP_KILL;
+		BUG();
 	}
 }
 
@@ -1313,6 +1306,11 @@ static void sd_release(struct gendisk *disk, fmode_t mode)
 		if (scsi_block_when_processing_errors(sdev))
 			scsi_set_medium_removal(sdev, SCSI_REMOVAL_ALLOW);
 	}
+
+	/*
+	 * XXX and what if there are packets in flight and this close()
+	 * XXX is followed by a "rmmod sd_mod"?
+	 */
 
 	scsi_disk_put(sdkp);
 }
@@ -1595,7 +1593,6 @@ static int sd_compat_ioctl(struct block_device *bdev, fmode_t mode,
 			(mode & FMODE_NDELAY) != 0);
 	if (error)
 		return error;
-
 	/*
 	 * Let the static ioctl translation table take care of it.
 	 */
@@ -2435,6 +2432,7 @@ sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer)
 	int res;
 	struct scsi_device *sdp = sdkp->device;
 	struct scsi_mode_data data;
+	int disk_ro = get_disk_ro(sdkp->disk);
 	int old_wp = sdkp->write_prot;
 
 	set_disk_ro(sdkp->disk, 0);
@@ -2475,7 +2473,7 @@ sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer)
 			  "Test WP failed, assume Write Enabled\n");
 	} else {
 		sdkp->write_prot = ((data.device_specific & 0x80) != 0);
-		set_disk_ro(sdkp->disk, sdkp->write_prot);
+		set_disk_ro(sdkp->disk, sdkp->write_prot || disk_ro);
 		if (sdkp->first_scan || old_wp != sdkp->write_prot) {
 			sd_printk(KERN_NOTICE, sdkp, "Write Protect is %s\n",
 				  sdkp->write_prot ? "on" : "off");
@@ -3201,7 +3199,7 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 			sdp->host->ufs_system_start = 0;
 			sdp->host->ufs_system_end = 0;
 			sdp->host->ufs_sys_log_en = false;
-
+	
 			for (i = 1; i < 30 ; i++) {
 				if (!gd->part_tbl)
 					break;
@@ -3310,6 +3308,7 @@ static int sd_probe(struct device *dev)
 	sdkp->driver = &sd_template;
 	sdkp->disk = gd;
 	sdkp->index = index;
+
 	atomic_set(&sdkp->openers, 0);
 	atomic_set(&sdkp->device->ioerr_cnt, 0);
 
@@ -3341,7 +3340,7 @@ static int sd_probe(struct device *dev)
 #ifdef CONFIG_LARGE_DIRTY_BUFFER
 		/* apply more throttle on non-ufs scsi device */
 		q->backing_dev_info.capabilities |= BDI_CAP_STRICTLIMIT;
-		bdi_set_min_ratio(&q->backing_dev_info, 20);
+		bdi_set_min_ratio(&q->backing_dev_info, 30);
 		bdi_set_max_ratio(&q->backing_dev_info, 60);
 #endif
 		pr_info("Parameters for SCSI-dev(%s): min/max_ratio: %u/%u "
@@ -3477,22 +3476,10 @@ static void scsi_disk_release(struct device *dev)
 {
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 	struct gendisk *disk = sdkp->disk;
-	struct request_queue *q = disk->queue;
 
 	spin_lock(&sd_index_lock);
 	ida_remove(&sd_index_ida, sdkp->index);
 	spin_unlock(&sd_index_lock);
-
-	/*
-	 * Wait until all requests that are in progress have completed.
-	 * This is necessary to avoid that e.g. scsi_end_request() crashes
-	 * due to clearing the disk->private_data pointer. Wait from inside
-	 * scsi_disk_release() instead of from sd_release() to avoid that
-	 * freezing and unfreezing the request queue affects user space I/O
-	 * in case multiple processes open a /dev/sd... node concurrently.
-	 */
-	blk_mq_freeze_queue(q);
-	blk_mq_unfreeze_queue(q);
 
 	disk->private_data = NULL;
 	put_disk(disk);
@@ -3739,3 +3726,4 @@ static void sd_print_result(const struct scsi_disk *sdkp, const char *msg,
 			  "%s: Result: hostbyte=0x%02x driverbyte=0x%02x\n",
 			  msg, host_byte(result), driver_byte(result));
 }
+

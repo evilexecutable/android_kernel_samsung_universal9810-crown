@@ -26,11 +26,10 @@
 
 #include <net/netfilter/nf_conntrack_tuple.h>
 
-/* START_OF_KNOX_NPA */
+// KNOX NPA - START
 #define PROCESS_NAME_LEN_NAP	128
 #define DOMAIN_NAME_LEN_NAP	255
-/* END_OF_KNOX_NPA */
-
+// KNOX NPA - END
 /* per conntrack: protocol private data */
 union nf_conntrack_proto {
 	/* insert conntrack proto private data here */
@@ -127,7 +126,8 @@ struct nf_conn {
 	/* Storage reserved for other modules, must be the last member */
 	union nf_conntrack_proto proto;
 
-	/* START_OF_KNOX_NPA */
+
+	// KNOX NPA - START
 	/* The number of application layer bytes sent by the socket */
 	__u64   knox_sent;
 	/* The number of application layer bytes recieved by the socket */
@@ -152,7 +152,12 @@ struct nf_conn {
 	char interface_name[IFNAMSIZ];
 	/* Atomic variable indicating start of flow */
 	atomic_t startFlow;
-	/* END_OF_KNOX_NPA */
+	/* The value at which this ct is considered timed-out for intermediate flows */
+	/* Use 'u32 npa_timeout' if struct nf_conn->timeout is of type u32;  Use 'struct timer_list npa_timeout' if struct nf_conn->timeout is of type struct timer_list;*/
+	u32 npa_timeout;
+	/* Atomic variable indicating end of intermediate flow */
+	atomic_t intermediateFlow;
+	// KNOX NPA - END
 
 };
 
@@ -368,8 +373,6 @@ struct nf_conn *nf_ct_tmpl_alloc(struct net *net,
 				 const struct nf_conntrack_zone *zone,
 				 gfp_t flags);
 void nf_ct_tmpl_free(struct nf_conn *tmpl);
-
-u32 nf_ct_get_id(const struct nf_conn *ct);
 
 #define NF_CT_STAT_INC(net, count)	  __this_cpu_inc((net)->ct.stat->count)
 #define NF_CT_STAT_INC_ATOMIC(net, count) this_cpu_inc((net)->ct.stat->count)

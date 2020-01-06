@@ -1160,6 +1160,7 @@ static struct ecryptfs_flag_map_elem ecryptfs_flag_map[] = {
 	{0x00000002, ECRYPTFS_ENCRYPTED},
 	{0x00000004, ECRYPTFS_METADATA_IN_XATTR},
 	{0x00000008, ECRYPTFS_ENCRYPT_FILENAMES},
+	{0x00000010, ECRYPTFS_SUPPORT_HMAC_KEY},
 #ifdef CONFIG_SDP
 	{0x00100000, ECRYPTFS_DEK_SDP_ENABLED},
 	{0x00200000, ECRYPTFS_DEK_IS_SENSITIVE},
@@ -1320,10 +1321,8 @@ int ecryptfs_read_and_validate_header_region(struct inode *inode)
 	int rc;
 	rc = ecryptfs_read_lower(file_size, 0, ECRYPTFS_SIZE_AND_MARKER_BYTES,
 				 inode);
-	if (rc < 0)
-		return rc;
-	else if (rc < ECRYPTFS_SIZE_AND_MARKER_BYTES)
-		return -EINVAL;
+	if (rc < ECRYPTFS_SIZE_AND_MARKER_BYTES)
+		return rc >= 0 ? -EINVAL : rc;
 	rc = ecryptfs_validate_marker(marker);
 	if (!rc)
 		ecryptfs_i_size_init(file_size, inode);
@@ -1390,6 +1389,7 @@ static int ecryptfs_write_headers_virt(char *page_virt, size_t max,
 	size_t offset;
 #ifdef CONFIG_ECRYPTFS_FEK_INTEGRITY
 	crypt_stat->flags |= ECRYPTFS_ENABLE_HMAC;
+	crypt_stat->flags |= ECRYPTFS_SUPPORT_HMAC_KEY;
 #endif
 
 	offset = ECRYPTFS_FILE_SIZE_BYTES;
@@ -1706,10 +1706,8 @@ int ecryptfs_read_and_validate_xattr_region(struct dentry *dentry,
 				     ecryptfs_inode_to_lower(inode),
 				     ECRYPTFS_XATTR_NAME, file_size,
 				     ECRYPTFS_SIZE_AND_MARKER_BYTES);
-	if (rc < 0)
-		return rc;
-	else if (rc < ECRYPTFS_SIZE_AND_MARKER_BYTES)
-		return -EINVAL;
+	if (rc < ECRYPTFS_SIZE_AND_MARKER_BYTES)
+		return rc >= 0 ? -EINVAL : rc;
 	rc = ecryptfs_validate_marker(marker);
 	if (!rc)
 		ecryptfs_i_size_init(file_size, inode);

@@ -23,6 +23,13 @@
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 
+#ifdef CONFIG_SECURITY_DEFEX
+#include <linux/defex.h>
+#endif
+
+#ifdef CONFIG_FSCRYPT_SDP
+#include <linux/fscrypto_sdp_cache.h>
+#endif
 const struct file_operations generic_ro_fops = {
 	.llseek		= generic_file_llseek,
 	.read_iter	= generic_file_read_iter,
@@ -389,10 +396,8 @@ ssize_t vfs_iter_write(struct file *file, struct iov_iter *iter, loff_t *ppos)
 	iter->type |= WRITE;
 	ret = file->f_op->write_iter(&kiocb, iter);
 	BUG_ON(ret == -EIOCBQUEUED);
-	if (ret > 0) {
+	if (ret > 0)
 		*ppos = kiocb.ki_pos;
-		fsnotify_modify(file);
-	}
 	return ret;
 }
 EXPORT_SYMBOL(vfs_iter_write);
@@ -505,12 +510,29 @@ static ssize_t new_sync_write(struct file *filp, const char __user *buf, size_t 
 ssize_t __vfs_write(struct file *file, const char __user *p, size_t count,
 		    loff_t *pos)
 {
+#ifdef CONFIG_FSCRYPT_SDP
+	ssize_t ret;
+
+	if (fscrypt_sdp_file_not_writable(file))
+		ret = -EINVAL;
+	else if (file->f_op->write)
+		ret = file->f_op->write(file, p, count, pos);
+	else if (file->f_op->write_iter)
+		ret = new_sync_write(file, p, count, pos);
+	else
+		ret = -EINVAL;
+
+	fscrypt_sdp_unset_file_io_ongoing(file);
+
+	return ret;
+#else
 	if (file->f_op->write)
 		return file->f_op->write(file, p, count, pos);
 	else if (file->f_op->write_iter)
 		return new_sync_write(file, p, count, pos);
 	else
 		return -EINVAL;
+#endif
 }
 EXPORT_SYMBOL(__vfs_write);
 
@@ -553,6 +575,10 @@ ssize_t vfs_write(struct file *file, const char __user *buf, size_t count, loff_
 
 	ret = rw_verify_area(WRITE, file, pos, count);
 	if (!ret) {
+#ifdef CONFIG_SECURITY_DEFEX
+		if (task_defex_enforce(current, file, -__NR_write))
+			return -EPERM;
+#endif
 		if (count > MAX_RW_COUNT)
 			count =  MAX_RW_COUNT;
 		file_start_write(file);
@@ -572,13 +598,12 @@ EXPORT_SYMBOL(vfs_write);
 
 static inline loff_t file_pos_read(struct file *file)
 {
-	return file->f_mode & FMODE_STREAM ? 0 : file->f_pos;
+	return file->f_pos;
 }
 
 static inline void file_pos_write(struct file *file, loff_t pos)
 {
-	if ((file->f_mode & FMODE_STREAM) == 0)
-		file->f_pos = pos;
+	file->f_pos = pos;
 }
 
 SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
@@ -1197,9 +1222,6 @@ COMPAT_SYSCALL_DEFINE5(preadv64v2, unsigned long, fd,
 		const struct compat_iovec __user *,vec,
 		unsigned long, vlen, loff_t, pos, int, flags)
 {
-	if (pos == -1)
-		return do_compat_readv(fd, vec, vlen, flags);
-
 	return do_compat_preadv64(fd, vec, vlen, pos, flags);
 }
 #endif
@@ -1306,9 +1328,6 @@ COMPAT_SYSCALL_DEFINE5(pwritev64v2, unsigned long, fd,
 		const struct compat_iovec __user *,vec,
 		unsigned long, vlen, loff_t, pos, int, flags)
 {
-	if (pos == -1)
-		return do_compat_writev(fd, vec, vlen, flags);
-
 	return do_compat_pwritev64(fd, vec, vlen, pos, flags);
 }
 #endif

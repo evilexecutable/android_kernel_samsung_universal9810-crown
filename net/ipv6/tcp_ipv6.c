@@ -517,12 +517,11 @@ out:
 	sock_put(sk);
 }
 
-
 static int tcp_v6_send_synack(const struct sock *sk, struct dst_entry *dst,
-			      struct flowi *fl,
-			      struct request_sock *req,
-			      struct tcp_fastopen_cookie *foc,
-			      enum tcp_synack_type synack_type)
+		       struct flowi *fl,
+		       struct request_sock *req,
+		       struct tcp_fastopen_cookie *foc,
+		       enum tcp_synack_type synack_type)
 {
 	struct inet_request_sock *ireq = inet_rsk(req);
 	struct ipv6_pinfo *np = inet6_sk(sk);
@@ -1234,11 +1233,11 @@ struct sock *tcp_v6_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
 		newnp->ipv6_fl_list = NULL;
 		newnp->pktoptions  = NULL;
 		newnp->opt	   = NULL;
-		newnp->mcast_oif   = inet_iif(skb);
-		newnp->mcast_hops  = ip_hdr(skb)->ttl;
-		newnp->rcv_flowinfo = 0;
+		newnp->mcast_oif   = tcp_v6_iif(skb);
+		newnp->mcast_hops  = ipv6_hdr(skb)->hop_limit;
+		newnp->rcv_flowinfo = ip6_flowinfo(ipv6_hdr(skb));
 		if (np->repflow)
-			newnp->flow_label = 0;
+			newnp->flow_label = ip6_flowlabel(ipv6_hdr(skb));
 
 		/*
 		 * No need to charge this sock to the relevant IPv6 refcnt debug socks count
@@ -1668,7 +1667,6 @@ process:
 			}
 		}
 #endif
-
 		nsk = NULL;
 		if (!tcp_filter(sk, skb))
 			nsk = tcp_check_req(sk, skb, req, false);
@@ -1695,6 +1693,7 @@ process:
 			return 0;
 		}
 	}
+
 	if (hdr->hop_limit < inet6_sk(sk)->min_hopcount) {
 		__NET_INC_STATS(net, LINUX_MIB_TCPMINTTLDROP);
 		goto discard_and_relse;

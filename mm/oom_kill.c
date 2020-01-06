@@ -378,6 +378,10 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 {
 	struct task_struct *p;
 	struct task_struct *task;
+	unsigned long cur_rss_sum;
+	unsigned long heaviest_rss_sum = 0;
+	char heaviest_comm[TASK_COMM_LEN];
+	pid_t heaviest_pid;
 #if defined(CONFIG_ZSWAP)
 	int zswap_stored_pages_temp;
 	unsigned long zswap_pool_pages_temp;
@@ -430,9 +434,19 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 			mm_nr_pmds(task->mm),
 			get_mm_counter(task->mm, MM_SWAPENTS),
 			task->signal->oom_score_adj, task->comm);
+		cur_rss_sum = get_mm_rss(task->mm) +
+					get_mm_counter(task->mm, MM_SWAPENTS);
+		if (cur_rss_sum > heaviest_rss_sum) {
+			heaviest_rss_sum = cur_rss_sum;
+			strncpy(heaviest_comm, task->comm, TASK_COMM_LEN);
+			heaviest_pid = task->pid;
+		}
 		task_unlock(task);
 	}
 	rcu_read_unlock();
+	if (heaviest_rss_sum)
+		pr_info("heaviest_task:%s(%d) rss_pages:%lu\n", heaviest_comm,
+			heaviest_pid, heaviest_rss_sum);
 }
 
 static BLOCKING_NOTIFIER_HEAD(oomdebug_notify_list);
@@ -463,10 +477,8 @@ static void dump_header(struct oom_control *oc, struct task_struct *p)
 	dump_stack();
 	if (oc->memcg)
 		mem_cgroup_print_oom_info(oc->memcg, p);
-	else {
-		show_mem_extra_call_notifiers();
+	else
 		show_mem(SHOW_MEM_FILTER_NODES);
-	}
 	if (sysctl_oom_dump_tasks)
 		dump_tasks(oc->memcg, oc->nodemask);
 
@@ -676,8 +688,8 @@ static void wake_oom_reaper(struct task_struct *tsk)
 	if (!oom_reaper_th)
 		return;
 
-	/* mm is already queued? */
-	if (test_and_set_bit(MMF_OOM_REAP_QUEUED, &tsk->signal->oom_mm->flags))
+	/* tsk is already queued? */
+	if (tsk == oom_reaper_list || tsk->oom_reaper_list)
 		return;
 
 	get_task_struct(tsk);
@@ -911,13 +923,6 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 	 * still freeing memory.
 	 */
 	read_lock(&tasklist_lock);
-
-	/*
-	 * The task 'p' might have already exited before reaching here. The
-	 * put_task_struct() will free task_struct 'p' while the loop still try
-	 * to access the field of 'p', so, get an extra reference.
-	 */
-	get_task_struct(p);
 	for_each_thread(p, t) {
 		list_for_each_entry(child, &t->children, sibling) {
 			unsigned int child_points;
@@ -937,7 +942,6 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 			}
 		}
 	}
-	put_task_struct(p);
 	read_unlock(&tasklist_lock);
 
 	p = find_lock_task_mm(victim);

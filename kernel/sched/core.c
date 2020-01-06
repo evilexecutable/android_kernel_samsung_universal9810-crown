@@ -76,6 +76,7 @@
 #include <linux/frame.h>
 #include <linux/prefetch.h>
 #include <linux/exynos-ss.h>
+#include <linux/cpufreq_times.h>
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
@@ -1182,8 +1183,7 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 	if (cpumask_equal(&p->cpus_allowed, new_mask))
 		goto out;
 
-	dest_cpu = cpumask_any_and(cpu_valid_mask, new_mask);
-	if (dest_cpu >= nr_cpu_ids) {
+	if (!cpumask_intersects(new_mask, cpu_valid_mask)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -1204,6 +1204,7 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 	if (cpumask_test_cpu(task_cpu(p), new_mask))
 		goto out;
 
+	dest_cpu = cpumask_any_and(cpu_valid_mask, new_mask);
 	if (task_running(rq, p) || p->state == TASK_WAKING) {
 		struct migration_arg arg = { p, dest_cpu };
 		/* Need help from migration thread: drop lock and wait. */
@@ -6284,9 +6285,7 @@ cpu_attach_domain(struct sched_domain *sd, struct root_domain *rd, int cpu)
 	rq_attach_root(rq, rd);
 	tmp = rq->sd;
 	rcu_assign_pointer(rq->sd, sd);
-#if defined(CONFIG_SCHED_DEBUG)
 	dirty_sched_domain_sysctl(cpu);
-#endif
 	destroy_sched_domains(tmp);
 
 	update_top_cache_domain(cpu);
@@ -7619,22 +7618,11 @@ int cpuset_cpu_inactive(unsigned int cpu)
 	return 0;
 }
 
-#ifdef CONFIG_SCHED_SMT
-atomic_t sched_smt_present = ATOMIC_INIT(0);
-#endif
-
 int sched_cpu_activate(unsigned int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long flags;
 
-#ifdef CONFIG_SCHED_SMT
-	/*
-	 * When going up, increment the number of cores with SMT present.
-	 */
-	if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
-		atomic_inc(&sched_smt_present);
-#endif
 	set_cpu_active(cpu, true);
 
 	if (sched_smp_initialized) {
@@ -7682,14 +7670,6 @@ int sched_cpu_deactivate(unsigned int cpu)
 		synchronize_rcu_mult(call_rcu, call_rcu_sched);
 	else
 		synchronize_rcu();
-
-#ifdef CONFIG_SCHED_SMT
-	/*
-	 * When going down, decrement the number of cores with SMT present.
-	 */
-	if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
-		atomic_dec(&sched_smt_present);
-#endif
 
 	if (!sched_smp_initialized)
 		return 0;
@@ -7835,11 +7815,6 @@ void __init sched_init(void)
 {
 	int i, j;
 	unsigned long alloc_size = 0, ptr;
-
-#ifdef CONFIG_SEC_DEBUG
-	sec_gaf_supply_rqinfo(offsetof(struct rq, curr),
-		offsetof(struct cfs_rq, rq));
-#endif
 
 	for (i = 0; i < WAIT_TABLE_SIZE; i++)
 		init_waitqueue_head(bit_wait_table + i);
@@ -8769,6 +8744,10 @@ static int cpu_cgroup_can_attach(struct cgroup_taskset *tset)
 #ifdef CONFIG_RT_GROUP_SCHED
 		if (!sched_rt_can_attach(css_tg(css), task))
 			return -EINVAL;
+#else
+		/* We don't support RT-tasks being in separate groups */
+		if (task->sched_class != &fair_sched_class)
+			return -EINVAL;
 #endif
 		/*
 		 * Serialize against wake_up_new_task() such that if its
@@ -8803,8 +8782,6 @@ static void cpu_cgroup_attach(struct cgroup_taskset *tset)
 static int cpu_shares_write_u64(struct cgroup_subsys_state *css,
 				struct cftype *cftype, u64 shareval)
 {
-	if (shareval > scale_load_down(ULONG_MAX))
-		shareval = MAX_SHARES;
 	return sched_group_set_shares(css_tg(css), scale_load(shareval));
 }
 
@@ -8904,10 +8881,8 @@ int tg_set_cfs_quota(struct task_group *tg, long cfs_quota_us)
 	period = ktime_to_ns(tg->cfs_bandwidth.period);
 	if (cfs_quota_us < 0)
 		quota = RUNTIME_INF;
-	else if ((u64)cfs_quota_us <= U64_MAX / NSEC_PER_USEC)
-		quota = (u64)cfs_quota_us * NSEC_PER_USEC;
 	else
-		return -EINVAL;
+		quota = (u64)cfs_quota_us * NSEC_PER_USEC;
 
 	return tg_set_cfs_bandwidth(tg, period, quota);
 }
@@ -8928,9 +8903,6 @@ long tg_get_cfs_quota(struct task_group *tg)
 int tg_set_cfs_period(struct task_group *tg, long cfs_period_us)
 {
 	u64 quota, period;
-
-	if ((u64)cfs_period_us > U64_MAX / NSEC_PER_USEC)
-		return -EINVAL;
 
 	period = (u64)cfs_period_us * NSEC_PER_USEC;
 	quota = tg->cfs_bandwidth.quota;

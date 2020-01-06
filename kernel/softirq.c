@@ -34,6 +34,8 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
 
+#include <linux/nmi.h>
+
 /*
    - No shared variables, all the data are CPU local.
    - If a softirq needs serialization, let it serialize itself
@@ -83,16 +85,12 @@ static void wakeup_softirqd(void)
 
 /*
  * If ksoftirqd is scheduled, we do not want to process pending softirqs
- * right now. Let ksoftirqd handle this at its own rate, to get fairness,
- * unless we're doing some of the synchronous softirqs.
+ * right now. Let ksoftirqd handle this at its own rate, to get fairness.
  */
-#define SOFTIRQ_NOW_MASK ((1 << HI_SOFTIRQ) | (1 << TASKLET_SOFTIRQ))
-static bool ksoftirqd_running(unsigned long pending)
+static bool ksoftirqd_running(void)
 {
 	struct task_struct *tsk = __this_cpu_read(ksoftirqd);
 
-	if (pending & SOFTIRQ_NOW_MASK)
-		return false;
 	return tsk && (tsk->state == TASK_RUNNING);
 }
 
@@ -290,7 +288,9 @@ restart:
 
 		trace_softirq_entry(vec_nr);
 		exynos_ss_irq(ESS_FLAG_SOFTIRQ, h->action, irqs_disabled(), ESS_FLAG_IN);
+		sl_softirq_entry(softirq_to_name[vec_nr], h->action);
 		h->action(h);
+		sl_softirq_exit();
 		exynos_ss_irq(ESS_FLAG_SOFTIRQ, h->action, irqs_disabled(), ESS_FLAG_OUT);
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {
@@ -334,7 +334,7 @@ asmlinkage __visible void do_softirq(void)
 
 	pending = local_softirq_pending();
 
-	if (pending && !ksoftirqd_running(pending))
+	if (pending && !ksoftirqd_running())
 		do_softirq_own_stack();
 
 	local_irq_restore(flags);
@@ -361,7 +361,7 @@ void irq_enter(void)
 
 static inline void invoke_softirq(void)
 {
-	if (ksoftirqd_running(local_softirq_pending()))
+	if (ksoftirqd_running())
 		return;
 
 	if (!force_irqthreads) {
@@ -531,7 +531,9 @@ static __latent_entropy void tasklet_action(struct softirq_action *a)
 #endif
 				exynos_ss_irq(ESS_FLAG_SOFTIRQ_TASKLET,
 						t->func, irqs_disabled(), ESS_FLAG_IN);
+				sl_softirq_entry(softirq_to_name[TASKLET_SOFTIRQ], t->func);
 				t->func(t->data);
+				sl_softirq_exit();
 				exynos_ss_irq(ESS_FLAG_SOFTIRQ_TASKLET,
 						t->func, irqs_disabled(), ESS_FLAG_OUT);
 #ifdef CONFIG_SEC_DUMP_SUMMARY
@@ -574,7 +576,9 @@ static __latent_entropy void tasklet_hi_action(struct softirq_action *a)
 					BUG();
 				exynos_ss_irq(ESS_FLAG_SOFTIRQ_HI_TASKLET,
 						t->func, irqs_disabled(), ESS_FLAG_IN);
+				sl_softirq_entry(softirq_to_name[HI_SOFTIRQ], t->func);
 				t->func(t->data);
+				sl_softirq_exit();
 				exynos_ss_irq(ESS_FLAG_SOFTIRQ_HI_TASKLET,
 						t->func, irqs_disabled(), ESS_FLAG_OUT);
 				tasklet_unlock(t);

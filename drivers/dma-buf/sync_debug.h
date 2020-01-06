@@ -24,37 +24,43 @@
  * struct sync_timeline - sync object
  * @kref:		reference count on fence.
  * @name:		name of the sync_timeline. Useful for debugging
- * @lock:		lock protecting @pt_list and @value
- * @pt_list:		list of active (unsignaled/errored) sync_pts
+ * @child_list_head:	list of children sync_pts for this sync_timeline
+ * @child_list_lock:	lock protecting @child_list_head and fence.status
+ * @active_list_head:	list of active (unsignaled/errored) sync_pts
  * @sync_timeline_list:	membership in global sync_timeline_list
  */
 struct sync_timeline {
 	struct kref		kref;
 	char			name[32];
 
-	/* protected by lock */
+	/* protected by child_list_lock */
 	u64			context;
 	int			value;
 
-	struct list_head	pt_list;
-	spinlock_t		lock;
+	struct list_head	child_list_head;
+	spinlock_t		child_list_lock;
+
+	struct list_head	active_list_head;
 
 	struct list_head	sync_timeline_list;
 };
 
 static inline struct sync_timeline *fence_parent(struct fence *fence)
 {
-	return container_of(fence->lock, struct sync_timeline, lock);
+	return container_of(fence->lock, struct sync_timeline,
+			    child_list_lock);
 }
 
 /**
  * struct sync_pt - sync_pt object
  * @base: base fence object
- * @link: link on the sync timeline's list
+ * @child_list: sync timeline child's list
+ * @active_list: sync timeline active child's list
  */
 struct sync_pt {
 	struct fence base;
-	struct list_head link;
+	struct list_head child_list;
+	struct list_head active_list;
 	struct work_struct defer_wq;
 };
 
@@ -69,7 +75,7 @@ void sync_file_debug_remove(struct sync_file *fence);
 void sync_dump(void);
 
 struct sync_timeline *sync_timeline_create(const char *name);
-struct sync_pt *sync_pt_create(struct sync_timeline *obj,
+struct sync_pt *sync_pt_create(struct sync_timeline *obj, int size,
 			     unsigned int value);
 void sync_timeline_signal(struct sync_timeline *obj, unsigned int inc);
 void sync_timeline_put(struct sync_timeline *obj);

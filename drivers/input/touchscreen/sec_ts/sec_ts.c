@@ -27,13 +27,6 @@ static int sec_ts_input_open(struct input_dev *dev);
 static void sec_ts_input_close(struct input_dev *dev);
 #endif
 
-#if defined(CONFIG_FB)
-static int touch_fb_notifier_callback(struct notifier_block *self,
-		unsigned long event, void *data);
-extern int input_enable_device(struct input_dev *dev);
-extern int input_disable_device(struct input_dev *dev);
-#endif
-
 int sec_ts_read_information(struct sec_ts_data *ts);
 
 #ifdef CONFIG_SECURE_TOUCH
@@ -2385,17 +2378,6 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 			__func__, client->irq);
 #endif
 
-
-#ifdef CONFIG_FB
-	ts->fb_notif.notifier_call = touch_fb_notifier_callback;
-	ret = fb_register_client(&ts->fb_notif);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: Failed to register fb client\n",
-			__func__);
-		goto err_fb_client;
-	}
-#endif
-
 	/* need remove below resource @ remove driver */
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 	sec_ts_raw_device_init(ts);
@@ -2441,11 +2423,6 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 #if 0
 	sec_ts_fn_remove(ts);
 	free_irq(client->irq, ts);
-#endif
-#ifdef CONFIG_FB
-	fb_unregister_client(&ts->fb_notif);
-
-err_fb_client:
 #endif
 err_irq:
 	if (ts->plat_data->support_dex) {
@@ -2855,6 +2832,7 @@ i2c_error:
 static int sec_ts_input_open(struct input_dev *dev)
 {
 	struct sec_ts_data *ts = input_get_drvdata(dev);
+	char addr[3] = { 0 };
 	int ret;
 
 	if (!ts->info_work_done) {
@@ -2896,6 +2874,22 @@ static int sec_ts_input_open(struct input_dev *dev)
 		ret = sec_ts_start_device(ts);
 		if (ret < 0)
 			input_err(true, &ts->client->dev, "%s: Failed to start device\n", __func__);
+	}
+
+	if (ts->pressure_user_level) {
+		input_err(true, &ts->client->dev, "%s: pressure_user_level %d\n", __func__, ts->pressure_user_level);
+
+		addr[0] = SEC_TS_CMD_SPONGE_OFFSET_PRESSURE_LEVEL;
+		addr[1] = 0x00;
+		addr[2] = ts->pressure_user_level;
+
+		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_WRITE_PARAM, addr, 3);
+		if (ret < 0)
+			input_err(true, &ts->client->dev, "%s: Failed to write sponge param\n", __func__);
+
+		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_NOTIFY_PACKET, NULL, 0);
+		if (ret < 0)
+			input_err(true, &ts->client->dev, "%s: Failed to write sponge packet\n", __func__);
 	}
 
 	/* because edge and dead zone will recover soon */
@@ -2990,12 +2984,6 @@ static int sec_ts_remove(struct i2c_client *client)
 	struct sec_ts_data *ts = i2c_get_clientdata(client);
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
-
-#if defined(CONFIG_FB)
-	if (fb_unregister_client(&ts->fb_notif))
-		input_info(true, &ts->client->dev,
-			"%s: Error occured while unregistering fb_notifier.\n", __func__);
-#endif
 
 	sec_ts_ioctl_remove(ts);
 
@@ -3096,7 +3084,6 @@ out:
 int sec_ts_start_device(struct sec_ts_data *ts)
 {
 	int ret = -1;
-	char addr[3] = { 0 };
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
@@ -3197,20 +3184,7 @@ int sec_ts_start_device(struct sec_ts_data *ts)
 			input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
 					__func__, SET_TS_CMD_SET_CHARGER_MODE);
 	}
-	
-	if (ts->pressure_user_level) {
-		addr[0] = SEC_TS_CMD_SPONGE_OFFSET_PRESSURE_LEVEL;
-		addr[1] = 0x00;
-		addr[2] = ts->pressure_user_level;
 
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_WRITE_PARAM, addr, 3);
-		if (ret < 0)
-			goto err;
-
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_NOTIFY_PACKET, NULL, 0);
-		if (ret < 0)
-			goto err;
-	}
 err:
 	/* Sense_on */
 	ret = sec_ts_i2c_write(ts, SEC_TS_CMD_SENSE_ON, NULL, 0);
@@ -3273,27 +3247,6 @@ static int sec_ts_pm_resume(struct device *dev)
 
 	return 0;
 }
-
-#if defined(CONFIG_FB)
-static int touch_fb_notifier_callback(struct notifier_block *self,
-		unsigned long event, void *data)
-{
-	struct sec_ts_data *ts =
-		container_of(self, struct sec_ts_data, fb_notif);
-	struct fb_event *ev = (struct fb_event *)data;
-
-	if (ev && ev->data && event == FB_EVENT_BLANK) {
-		int *blank = (int *)ev->data;
-
-		if (*blank == FB_BLANK_UNBLANK)
-			input_enable_device(ts->input_dev);
-		else
-			input_disable_device(ts->input_dev);
-	}
-
-	return 0;
-}
-#endif
 #endif
 
 #ifdef CONFIG_TRUSTONIC_TRUSTED_UI

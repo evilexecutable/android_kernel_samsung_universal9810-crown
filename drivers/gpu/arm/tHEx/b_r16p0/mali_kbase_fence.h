@@ -139,8 +139,9 @@ static inline bool kbase_fence_out_is_ours(struct kbase_jd_atom *katom)
 static inline int kbase_fence_out_signal(struct kbase_jd_atom *katom,
 					 int status)
 {
-	if (status)
- 		katom->dma_fence.fence->error = status;
+	if (status) {
+		fence_set_error(katom->dma_fence.fence, status);
+	}
 	return dma_fence_signal(katom->dma_fence.fence);
 }
 

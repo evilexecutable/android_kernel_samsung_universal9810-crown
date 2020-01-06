@@ -26,8 +26,8 @@ enum mapping_flags {
 	AS_EXITING	= 4, 	/* final truncate in progress */
 	/* writeback related tags are not used */
 	AS_NO_WRITEBACK_TAGS = 5,
-#ifdef CONFIG_SDP
-	AS_SENSITIVE = 6, /* Group of sensitive pages to be cleaned up */
+#if defined(CONFIG_SDP)
+	AS_SENSITIVE = __GFP_BITS_SHIFT + 5, /* Group of sensitive pages to be cleaned up */
 #endif
 };
 

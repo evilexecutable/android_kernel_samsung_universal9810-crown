@@ -190,9 +190,6 @@ static unsigned long *alloc_thread_stack_node(struct task_struct *tsk, int node)
 			continue;
 		this_cpu_write(cached_stacks[i], NULL);
 
-		/* Clear stale pointers from reused stack. */
-		memset(s->addr, 0, THREAD_SIZE);
-
 		tsk->stack_vm_area = s;
 		local_irq_enable();
 		return s->addr;
@@ -200,10 +197,10 @@ static unsigned long *alloc_thread_stack_node(struct task_struct *tsk, int node)
 	local_irq_enable();
 
 	stack = __vmalloc_node_range(THREAD_SIZE, THREAD_SIZE,
-				     VMALLOC_START, VMALLOC_END,
-				     THREADINFO_GFP | __GFP_HIGHMEM,
-				     PAGE_KERNEL,
-				     0, node, __builtin_return_address(0));
+			VMALLOC_START, VMALLOC_END,
+			THREADINFO_GFP | __GFP_HIGHMEM,
+			PAGE_KERNEL,
+			0, node, __builtin_return_address(0));
 
 	/*
 	 * We can't call find_vm_area() in interrupt context, and
@@ -215,7 +212,7 @@ static unsigned long *alloc_thread_stack_node(struct task_struct *tsk, int node)
 	return stack;
 #else
 	struct page *page = alloc_pages_node(node, THREADINFO_GFP,
-					     THREAD_SIZE_ORDER);
+			THREAD_SIZE_ORDER);
 
 	return page ? page_address(page) : NULL;
 #endif
@@ -251,7 +248,7 @@ static inline void free_thread_stack(struct task_struct *tsk)
 static struct kmem_cache *thread_stack_cache;
 
 static unsigned long *alloc_thread_stack_node(struct task_struct *tsk,
-						  int node)
+		int node)
 {
 	return kmem_cache_alloc_node(thread_stack_cache, THREADINFO_GFP, node);
 }
@@ -264,7 +261,7 @@ static void free_thread_stack(struct task_struct *tsk)
 void thread_stack_cache_init(void)
 {
 	thread_stack_cache = kmem_cache_create("thread_stack", THREAD_SIZE,
-					      THREAD_SIZE, 0, NULL);
+			THREAD_SIZE, 0, NULL);
 	BUG_ON(thread_stack_cache == NULL);
 }
 # endif
@@ -302,13 +299,13 @@ static void account_kernel_stack(struct task_struct *tsk, int account)
 
 		for (i = 0; i < THREAD_SIZE / PAGE_SIZE; i++) {
 			mod_zone_page_state(page_zone(vm->pages[i]),
-					    NR_KERNEL_STACK_KB,
-					    PAGE_SIZE / 1024 * account);
+					NR_KERNEL_STACK_KB,
+					PAGE_SIZE / 1024 * account);
 		}
 
 		/* All stack pages belong to the same memcg. */
 		memcg_kmem_update_page_stat(vm->pages[0], MEMCG_KERNEL_STACK_KB,
-					    account * (THREAD_SIZE / 1024));
+				account * (THREAD_SIZE / 1024));
 	} else {
 		/*
 		 * All stack pages are in the same zone and belong to the
@@ -317,10 +314,10 @@ static void account_kernel_stack(struct task_struct *tsk, int account)
 		struct page *first_page = virt_to_page(stack);
 
 		mod_zone_page_state(page_zone(first_page), NR_KERNEL_STACK_KB,
-				    THREAD_SIZE / 1024 * account);
+				THREAD_SIZE / 1024 * account);
 
 		memcg_kmem_update_page_stat(first_page, MEMCG_KERNEL_STACK_KB,
-					    account * (THREAD_SIZE / 1024));
+				account * (THREAD_SIZE / 1024));
 	}
 }
 
@@ -397,7 +394,7 @@ void __put_task_struct(struct task_struct *tsk)
 	WARN_ON(tsk == current);
 
 	cgroup_free(tsk);
-	task_numa_free(tsk, true);
+	task_numa_free(tsk);
 	security_task_free(tsk);
 	exit_creds(tsk);
 	delayacct_tsk_free(tsk);
@@ -1312,9 +1309,7 @@ static int copy_sighand(unsigned long clone_flags, struct task_struct *tsk)
 		return -ENOMEM;
 
 	atomic_set(&sig->count, 1);
-	spin_lock_irq(&current->sighand->siglock);
 	memcpy(sig->action, current->sighand->action, sizeof(sig->action));
-	spin_unlock_irq(&current->sighand->siglock);
 	return 0;
 }
 
@@ -1605,18 +1600,6 @@ static __latent_entropy struct task_struct *copy_process(
 
 	cpufreq_task_times_init(p);
 
-	/*
-	 * This _must_ happen before we call free_task(), i.e. before we jump
-	 * to any of the bad_fork_* labels. This is to avoid freeing
-	 * p->set_child_tid which is (ab)used as a kthread's data pointer for
-	 * kernel threads (PF_KTHREAD).
-	 */
-	p->set_child_tid = (clone_flags & CLONE_CHILD_SETTID) ? child_tidptr : NULL;
-	/*
-	 * Clear TID on mm_release()?
-	 */
-	p->clear_child_tid = (clone_flags & CLONE_CHILD_CLEARTID) ? child_tidptr : NULL;
-
 	ftrace_graph_init_task(p);
 
 	rt_mutex_init_task(p);
@@ -1679,6 +1662,8 @@ static __latent_entropy struct task_struct *copy_process(
 
 	posix_cpu_timers_init(p);
 
+	p->start_time = ktime_get_ns();
+	p->real_start_time = ktime_get_boot_ns();
 	p->io_context = NULL;
 	p->audit_context = NULL;
 	cgroup_fork(p);
@@ -1776,6 +1761,11 @@ static __latent_entropy struct task_struct *copy_process(
 		}
 	}
 
+	p->set_child_tid = (clone_flags & CLONE_CHILD_SETTID) ? child_tidptr : NULL;
+	/*
+	 * Clear TID on mm_release()?
+	 */
+	p->clear_child_tid = (clone_flags & CLONE_CHILD_CLEARTID) ? child_tidptr : NULL;
 #ifdef CONFIG_BLOCK
 	p->plug = NULL;
 #endif
@@ -1841,17 +1831,6 @@ static __latent_entropy struct task_struct *copy_process(
 	retval = dup_task_integrity(clone_flags, p);
 	if (retval)
 		goto bad_fork_free_pid;
-
-	/*
-	 * From this point on we must avoid any synchronous user-space
-	 * communication until we take the tasklist-lock. In particular, we do
-	 * not want user-space to be able to predict the process start-time by
-	 * stalling fork(2) after we recorded the start_time but before it is
-	 * visible to the system.
-	 */
-
-	p->start_time = ktime_get_ns();
-	p->real_start_time = ktime_get_boot_ns();
 
 	/*
 	 * Make it visible to the rest of the system, but dont wake it up yet.
@@ -2447,7 +2426,7 @@ int sysctl_max_threads(struct ctl_table *table, int write,
 	struct ctl_table t;
 	int ret;
 	int threads = max_threads;
-	int min = 1;
+	int min = MIN_THREADS;
 	int max = MAX_THREADS;
 
 	t = *table;
@@ -2459,7 +2438,7 @@ int sysctl_max_threads(struct ctl_table *table, int write,
 	if (ret || !write)
 		return ret;
 
-	max_threads = threads;
+	set_max_threads(threads);
 
 	return 0;
 }

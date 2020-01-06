@@ -550,6 +550,7 @@ static void __init map_kernel_segment(pgd_t *pgd, void *va_start, void *va_end,
 	vma->flags	= VM_MAP;
 	vma->caller	= __builtin_return_address(0);
 
+
 	vm_area_add_early(vma);
 }
 
@@ -575,6 +576,7 @@ static void __init map_kernel_text_segment(pgd_t *pgd, void *va_start, void *va_
 	vm_area_add_early(vma);
 }
 #endif
+
 
 #ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 static int __init map_entry_trampoline(void)
@@ -957,18 +959,13 @@ void *__init fixmap_remap_fdt(phys_addr_t dt_phys)
 
 int __init arch_ioremap_pud_supported(void)
 {
-	/*
-	 * Only 4k granule supports level 1 block mappings.
-	 * SW table walks can't handle removal of intermediate entries.
-	 */
-	return IS_ENABLED(CONFIG_ARM64_4K_PAGES) &&
-	       !IS_ENABLED(CONFIG_ARM64_PTDUMP_DEBUGFS);
+	/* only 4k granule supports level 1 block mappings */
+	return IS_ENABLED(CONFIG_ARM64_4K_PAGES);
 }
 
 int __init arch_ioremap_pmd_supported(void)
 {
-	/* See arch_ioremap_pud_supported() */
-	return !IS_ENABLED(CONFIG_ARM64_PTDUMP_DEBUGFS);
+	return 1;
 }
 
 int pud_set_huge(pud_t *pud, phys_addr_t phys, pgprot_t prot)
@@ -1001,12 +998,12 @@ int pmd_clear_huge(pmd_t *pmd)
 	return 1;
 }
 
-int pud_free_pmd_page(pud_t *pud, unsigned long addr)
+int pud_free_pmd_page(pud_t *pud)
 {
 	return pud_none(*pud);
 }
 
-int pmd_free_pte_page(pmd_t *pmd, unsigned long addr)
+int pmd_free_pte_page(pmd_t *pmd)
 {
 	return pmd_none(*pmd);
 }

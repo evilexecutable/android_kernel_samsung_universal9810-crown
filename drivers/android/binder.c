@@ -78,6 +78,8 @@
 #include <linux/freecess.h>
 #endif
 
+int system_server_pid = 0;
+
 static HLIST_HEAD(binder_deferred_list);
 static DEFINE_MUTEX(binder_deferred_lock);
 
@@ -357,6 +359,9 @@ struct binder_error {
  *                        (invariant after initialized)
  * @min_priority:         minimum scheduling priority
  *                        (invariant after initialized)
+ * @txn_security_ctx:     require sender's security context
+						 (invariant after initialized)
+
  * @inherit_rt:           inherit RT scheduling policy from caller
  * @txn_security_ctx:     require sender's security context
  *                        (invariant after initialized)
@@ -530,8 +535,7 @@ struct binder_priority {
  * @requested_threads_started: number binder threads started
  *                        (protected by @inner_lock)
  * @tmp_ref:              temporary reference to indicate proc is in use
- *                        (atomic since @proc->inner_lock cannot
- *                        always be acquired)
+ *                        (protected by @inner_lock)
  * @default_priority:     default scheduler priority
  *                        (invariant after initialized)
  * @debugfs_entry:        debugfs node
@@ -565,7 +569,7 @@ struct binder_proc {
 	int max_threads;
 	int requested_threads;
 	int requested_threads_started;
-	atomic_t tmp_ref;
+	int tmp_ref;
 	struct binder_priority default_priority;
 	struct dentry *debugfs_entry;
 	struct binder_alloc alloc;
@@ -1248,7 +1252,7 @@ static void binder_transaction_priority(struct task_struct *task,
 					struct binder_priority node_prio,
 					bool inherit_rt)
 {
-	struct binder_priority desired_prio = t->priority;
+	struct binder_priority desired_prio;
 
 	if (t->set_priority_called)
 		return;
@@ -1260,6 +1264,9 @@ static void binder_transaction_priority(struct task_struct *task,
 	if (!inherit_rt && is_rt_policy(desired_prio.sched_policy)) {
 		desired_prio.prio = NICE_TO_PRIO(0);
 		desired_prio.sched_policy = SCHED_NORMAL;
+	} else {
+		desired_prio.prio = t->priority.prio;
+		desired_prio.sched_policy = t->priority.sched_policy;
 	}
 
 	if (node_prio.prio < t->priority.prio ||
@@ -1366,6 +1373,7 @@ static struct binder_node *binder_init_node_ilocked(
 		FLAT_BINDER_FLAG_SCHED_POLICY_SHIFT;
 	node->min_priority = to_kernel_prio(node->sched_policy, priority);
 	node->accept_fds = !!(flags & FLAT_BINDER_FLAG_ACCEPTS_FDS);
+	node->txn_security_ctx = !!(flags & FLAT_BINDER_FLAG_TXN_SECURITY_CTX);
 	node->inherit_rt = !!(flags & FLAT_BINDER_FLAG_INHERIT_RT);
 	node->txn_security_ctx = !!(flags & FLAT_BINDER_FLAG_TXN_SECURITY_CTX);
 	spin_lock_init(&node->lock);
@@ -2056,9 +2064,9 @@ static void binder_thread_dec_tmpref(struct binder_thread *thread)
 static void binder_proc_dec_tmpref(struct binder_proc *proc)
 {
 	binder_inner_proc_lock(proc);
-	atomic_dec(&proc->tmp_ref);
+	proc->tmp_ref--;
 	if (proc->is_dead && RB_EMPTY_ROOT(&proc->threads) &&
-			!atomic_read(&proc->tmp_ref)) {
+			!proc->tmp_ref) {
 		binder_inner_proc_unlock(proc);
 		binder_free_proc(proc);
 		return;
@@ -2120,26 +2128,18 @@ static struct binder_thread *binder_get_txn_from_and_acq_inner(
 
 static void binder_free_transaction(struct binder_transaction *t)
 {
-	struct binder_proc *target_proc;
+	struct binder_proc *target_proc = t->to_proc;
 
-	spin_lock(&t->lock);
-	target_proc = t->to_proc;
 	if (target_proc) {
-		atomic_inc(&target_proc->tmp_ref);
-		spin_unlock(&t->lock);
-
 		binder_inner_proc_lock(target_proc);
 		if (t->buffer)
 			t->buffer->transaction = NULL;
 		binder_inner_proc_unlock(target_proc);
-		binder_proc_dec_tmpref(target_proc);
-	} else {
-		/*
-		 * If the transaction has no target_proc, then
-		 * t->buffer->transaction * has already been cleared.
-		 */
-		spin_unlock(&t->lock);
 	}
+	/*
+	 * If the transaction has no target_proc, then
+	 * t->buffer->transaction has already been cleared.
+	 */
 	kfree(t);
 	binder_stats_deleted(BINDER_STAT_TRANSACTION);
 }
@@ -2755,7 +2755,7 @@ static void print_binder_proc_inner(struct binder_proc *proc)
 		p_thread = rb_entry(pn, struct binder_thread, rb_node);
 		t = p_thread->transaction_stack;
 		if (t) {
-                        spin_lock(&t->lock);
+			spin_lock(&t->lock);
 			if (t->from != p_thread && t->to_thread == p_thread) { //incoming transaction
 				buffer = t->buffer;
 				if (buffer != NULL) {
@@ -2765,18 +2765,16 @@ static void print_binder_proc_inner(struct binder_proc *proc)
 						t->to_proc ? t->to_proc->pid : 0,
 						t->to_thread ? t->to_thread->pid : 0,
 						buffer->data_size, buffer->offsets_size);
-
 				} else {
 					pr_info("[%d] from %d:%d to %d:%d\n",
 						cnt, t->from ? t->from->proc->pid : 0,
 						t->from ? t->from->pid : 0,
 						t->to_proc ? t->to_proc->pid : 0,
 						t->to_thread ? t->to_thread->pid : 0);
-
 				}
-                                cnt++;
+                cnt++;
 			}
-                        spin_unlock(&t->lock);
+            spin_unlock(&t->lock);
 		}
 	}
 	binder_inner_proc_unlock(proc);
@@ -2934,7 +2932,7 @@ static struct binder_node *binder_get_node_refs_for_txn(
 		target_node = node;
 		binder_inc_node_nilocked(node, 1, 0, NULL);
 		binder_inc_node_tmpref_ilocked(node);
-		atomic_inc(&node->proc->tmp_ref);
+		node->proc->tmp_ref++;
 		*procp = node->proc;
 	} else
 		*error = BR_DEAD_REPLY;
@@ -3030,7 +3028,7 @@ static void binder_transaction(struct binder_proc *proc,
 			goto err_dead_binder;
 		}
 		target_proc = target_thread->proc;
-		atomic_inc(&target_proc->tmp_ref);
+		target_proc->tmp_ref++;
 		binder_inner_proc_unlock(target_thread->proc);
 	} else {
 		if (tr->target.handle) {
@@ -3244,7 +3242,7 @@ static void binder_transaction(struct binder_proc *proc,
 		//SAnP]
 		goto err_binder_alloc_buf_failed;
 	}
-	if (secctx) {
+    if (secctx) {
 		size_t buf_offset = ALIGN(tr->data_size, sizeof(void *)) +
 				    ALIGN(tr->offsets_size, sizeof(void *)) +
 				    ALIGN(extra_buffers_size, sizeof(void *)) -
@@ -3257,6 +3255,7 @@ static void binder_transaction(struct binder_proc *proc,
 		security_release_secctx(secctx, secctx_sz);
 		secctx = NULL;
 	}
+	
 	t->buffer->debug_id = t->debug_id;
 	t->buffer->transaction = t;
 	t->buffer->target_node = target_node;
@@ -3302,8 +3301,7 @@ static void binder_transaction(struct binder_proc *proc,
 	}
 	off_end = (void *)off_start + tr->offsets_size;
 	sg_bufp = (u8 *)(PTR_ALIGN(off_end, sizeof(void *)));
-	sg_buf_end = sg_bufp + extra_buffers_size -
-		ALIGN(secctx_sz, sizeof(u64));
+	sg_buf_end = sg_bufp + extra_buffers_size;
 	off_min = 0;
 	for (; offp < off_end; offp++) {
 		struct binder_object_header *hdr;
@@ -3760,14 +3758,14 @@ static int binder_thread_write(struct binder_proc *proc,
 			if (IS_ERR_OR_NULL(buffer)) {
 				if (PTR_ERR(buffer) == -EPERM) {
 					binder_user_error(
-						"%d:%d BC_FREE_BUFFER u%016llx matched unreturned or currently freeing buffer\n",
-						proc->pid, thread->pid,
-						(u64)data_ptr);
+					"%d:%d BC_FREE_BUFFER u%016llx matched unreturned or currently freeing buffer\n",
+					proc->pid, thread->pid,
+					(u64)data_ptr);
 				} else {
 					binder_user_error(
-						"%d:%d BC_FREE_BUFFER u%016llx no match\n",
-						proc->pid, thread->pid,
-						(u64)data_ptr);
+					"%d:%d BC_FREE_BUFFER u%016llx no match\n",
+					proc->pid, thread->pid,
+					(u64)data_ptr);
 				}
 				break;
 			}
@@ -3777,12 +3775,10 @@ static int binder_thread_write(struct binder_proc *proc,
 				     buffer->debug_id,
 				     buffer->transaction ? "active" : "finished");
 
-			binder_inner_proc_lock(proc);
 			if (buffer->transaction) {
 				buffer->transaction->buffer = NULL;
 				buffer->transaction = NULL;
 			}
-			binder_inner_proc_unlock(proc);
 			if (buffer->async_transaction && buffer->target_node) {
 				struct binder_node *buf_node;
 				struct binder_work *w;
@@ -4182,6 +4178,7 @@ retry:
 		uint32_t cmd;
 		struct binder_transaction_data_secctx tr;
 		struct binder_transaction_data *trd = &tr.transaction_data;
+
 		struct binder_work *w = NULL;
 		struct list_head *list = NULL;
 		struct binder_transaction *t = NULL;
@@ -4384,6 +4381,7 @@ retry:
 
 			trd->target.ptr = target_node->ptr;
 			trd->cookie =  target_node->cookie;
+
 			node_prio.sched_policy = target_node->sched_policy;
 			node_prio.prio = target_node->min_priority;
 			binder_transaction_priority(current, t, node_prio,
@@ -4443,15 +4441,15 @@ retry:
 			return -EFAULT;
 		}
 		ptr += trsize;
-
+		
 		trace_binder_transaction_received(t);
 		binder_stat_br(proc, thread, cmd);
 		binder_debug(BINDER_DEBUG_TRANSACTION,
 			     "%d:%d %s %d %d:%d, cmd %d size %zd-%zd ptr %016llx-%016llx\n",
 			     proc->pid, thread->pid,
 			     (cmd == BR_TRANSACTION) ? "BR_TRANSACTION" :
-				(cmd == BR_TRANSACTION_SEC_CTX) ?
-				     "BR_TRANSACTION_SEC_CTX" : "BR_REPLY",
+			     (cmd == BR_TRANSACTION_SEC_CTX) ?
+					"BR_TRANSACTION_SEC_CTX" : "BR_REPLY",	 
 			     t->debug_id, t_from ? t_from->proc->pid : 0,
 			     t_from ? t_from->pid : 0, cmd,
 			     t->buffer->data_size, t->buffer->offsets_size,
@@ -4644,7 +4642,7 @@ static int binder_thread_release(struct binder_proc *proc,
 	 * The corresponding dec is when we actually
 	 * free the thread in binder_free_thread()
 	 */
-	atomic_inc(&proc->tmp_ref);
+	proc->tmp_ref++;
 	/*
 	 * take a ref on this thread to ensure it
 	 * survives while we are releasing it
@@ -4934,6 +4932,7 @@ static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			goto err;
 		break;
 	}
+
 	case BINDER_SET_CONTEXT_MGR:
 		ret = binder_ioctl_set_ctx_mgr(filp, NULL);
 		if (ret)
@@ -4973,6 +4972,14 @@ static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		if (copy_to_user(ubuf, &info, sizeof(info))) {
 			ret = -EFAULT;
+			goto err;
+		}
+		break;
+	}
+	case BINDER_SET_SYSTEM_SERVER_PID: {
+		if (copy_from_user(&system_server_pid, ubuf,
+				   sizeof(system_server_pid))) {
+			ret = -EINVAL;
 			goto err;
 		}
 		break;
@@ -5084,7 +5091,6 @@ static int binder_open(struct inode *nodp, struct file *filp)
 		return -ENOMEM;
 	spin_lock_init(&proc->inner_lock);
 	spin_lock_init(&proc->outer_lock);
-	atomic_set(&proc->tmp_ref, 0);
 	get_task_struct(current->group_leader);
 	proc->tsk = current->group_leader;
 	mutex_init(&proc->files_lock);
@@ -5264,7 +5270,7 @@ static void binder_deferred_release(struct binder_proc *proc)
 	 * Make sure proc stays alive after we
 	 * remove all the threads
 	 */
-	atomic_inc(&proc->tmp_ref);
+	proc->tmp_ref++;
 
 	proc->is_dead = true;
 	threads = 0;

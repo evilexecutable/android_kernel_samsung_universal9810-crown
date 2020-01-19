@@ -199,9 +199,9 @@ static DEFINE_MUTEX(selinux_sdcardfs_lock);
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
 // [ SEC_SELINUX_PORTING_COMMON
 #if defined(CONFIG_ALWAYS_ENFORCE) && defined(CONFIG_RKP_KDP)
-RKP_RO_AREA int selinux_enforcing = 0;
+RKP_RO_AREA int selinux_enforcing;
 #else
-int selinux_enforcing = 0;
+int selinux_enforcing;
 #endif
 // ] SEC_SELINUX_PORTING_COMMON
 
@@ -211,9 +211,9 @@ static int __init enforcing_setup(char *str)
 	if (!kstrtoul(str, 0, &enforcing))
 // [ SEC_SELINUX_PORTING_COMMON
 #ifdef CONFIG_ALWAYS_ENFORCE
-		selinux_enforcing = 0;
+		selinux_enforcing = 1;
 #else
-		selinux_enforcing = 0;
+		selinux_enforcing = enforcing ? 1 : 0;
 #endif
 // ] SEC_SELINUX_PORTING_COMMON
 	return 1;

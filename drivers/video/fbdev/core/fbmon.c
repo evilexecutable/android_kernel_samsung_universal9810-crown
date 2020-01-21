@@ -1048,7 +1048,7 @@ void fb_edid_to_monspecs(unsigned char *edid, struct fb_monspecs *specs)
 	DPRINTK("========================================\n");
 }
 
-<<<<<<< HEAD
+
 /**
  * fb_edid_add_monspecs() - add monitor video modes from E-EDID data
  * @edid:	128 byte array with an E-EDID block
@@ -1077,7 +1077,6 @@ void fb_edid_add_monspecs(unsigned char *edid, struct fb_monspecs *specs)
 	while (pos < edid[2]) {
 		u8 len = edid[pos] & 0x1f, type = (edid[pos] >> 5) & 7;
 		pr_debug("Data block %u of %u bytes\n", type, len);
-
 		pos++;
 		if (type == 2) {
 			for (i = pos; i < pos + len; i++) {
@@ -1085,7 +1084,6 @@ void fb_edid_add_monspecs(unsigned char *edid, struct fb_monspecs *specs)
 				svd[svd_n++] = idx;
 				pr_debug("N%sative mode #%d\n",
 					 edid[i] & 0x80 ? "" : "on-n", idx);
-			}
 		} else if (type == 3 && len >= 3) {
 			/* Check Vendor Specific Data Block.  For HDMI,
 			   it is always 00-0C-03 for HDMI Licensing, LLC. */
@@ -1142,8 +1140,6 @@ void fb_edid_add_monspecs(unsigned char *edid, struct fb_monspecs *specs)
 	specs->modedb_len = specs->modedb_len + num + svd_n;
 }
 
-=======
->>>>>>> edb904416591... fbdev: Ditch fb_edid_add_monspecs
 /*
  * VESA Generalized Timing Formula (GTF)
  */
@@ -1553,6 +1549,9 @@ int fb_parse_edid(unsigned char *edid, struct fb_var_screeninfo *var)
 void fb_edid_to_monspecs(unsigned char *edid, struct fb_monspecs *specs)
 {
 }
+void fb_edid_add_monspecs(unsigned char *edid, struct fb_monspecs *specs)
+{
+}
 void fb_destroy_modedb(struct fb_videomode *modedb)
 {
 }
@@ -1660,6 +1659,7 @@ EXPORT_SYMBOL(fb_firmware_edid);
 
 EXPORT_SYMBOL(fb_parse_edid);
 EXPORT_SYMBOL(fb_edid_to_monspecs);
+EXPORT_SYMBOL(fb_edid_add_monspecs);
 EXPORT_SYMBOL(fb_get_mode);
 EXPORT_SYMBOL(fb_validate_mode);
 EXPORT_SYMBOL(fb_destroy_modedb);
